@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { supabase } from './supabaseClient';
 import { Trophy, Flame, CheckCircle2, XCircle, Share2 } from 'lucide-react';
 
 const EXCHANGE_RATES = {
@@ -76,6 +77,39 @@ export default function App() {
   const q = DAILY_QUESTIONS[currentRound];
 
   return (
+    // Automatické uložení výsledku do Supabase po dokončení hry
+  useEffect(() => {
+    // Zkontrolujeme, zda hra dospěla do stavu "Game Over" / "Daily Complete"
+    if (gameOver) { // Ujisti se, že se proměnná pro konec hry jmenuje 'gameOver' (případně isGameOver apod.)
+      const saveStats = async () => {
+        try {
+          const finalStreak = streak + 1; // Podle tvého kódu renderuješ {streak + 1}
+          
+          // Získání přihlášeného uživatele (pokud existuje)
+          const { data: { user } } = await supabase.auth.getUser();
+
+          const { error } = await supabase
+            .from('stats')
+            .upsert({
+              user_id: user?.id || null,
+              best_streak: finalStreak,
+              total_games: 1,
+              updated_at: new Date().toISOString()
+            });
+
+          if (error) {
+            console.error('Chyba při zápisu do Supabase:', error.message);
+          } else {
+            console.log('Skóre bylo úspěšně zapsáno do Supabase!');
+          }
+        } catch (err) {
+          console.error('Chyba uložení:', err);
+        }
+      };
+
+      saveStats();
+    }
+  }, [gameOver]); // Spustí se pokaždé, když hra skončí
     <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 lg:p-8 relative overflow-hidden font-sans">
       {/* Vizuální efekty pozadí na desktopu */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
