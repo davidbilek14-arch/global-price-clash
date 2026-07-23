@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, Flame, CheckCircle2, XCircle, Share2, LogOut, X, Globe, User } from 'lucide-react';
+import { Trophy, Flame, CheckCircle2, XCircle, Share2, LogOut, X, Globe } from 'lucide-react';
 import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
@@ -43,14 +43,6 @@ const DAILY_QUESTIONS = [
   }
 ];
 
-interface LeaderboardUser {
-  user_id: string;
-  email: string;
-  high_score: number;
-  best_streak: number;
-  country_code?: string;
-}
-
 interface CountryStats {
   country_code: string;
   total_score: number;
@@ -64,16 +56,26 @@ export default function App() {
   const [gameState, setGameState] = useState('playing');
   const [lastAnswerCorrect, setLastAnswerCorrect] = useState<boolean | null>(null);
   const [streak, setStreak] = useState(3);
+  const [userCountry, setUserCountry] = useState('CZ'); // Výchozí země
 
   // Stav pro uživatele a modální okna
   const [user, setUser] = useState<any>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
-  const [leaderboardTab, setLeaderboardTab] = useState<'players' | 'countries'>('players');
-  
-  const [playerLeaders, setPlayerLeaders] = useState<LeaderboardUser[]>([]);
   const [countryLeaders, setCountryLeaders] = useState<CountryStats[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+
+  // Auto-detekce země uživatele podle IP
+  useEffect(() => {
+    fetch('https://ipapi.co/json/')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.country_code) {
+          setUserCountry(data.country_code);
+        }
+      })
+      .catch(() => console.log('Detekce IP selhala, používám CZ'));
+  }, []);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -87,27 +89,15 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Načtení Žebříčku (Hráči i Země)
+  // Načtení Žebříčku Zemí
   const fetchLeaderboard = async () => {
     setLoadingLeaderboard(true);
 
-    // 1. TOP Hráči
-    const { data: playersData, error: pError } = await supabase
-      .from('stats')
-      .select('user_id, email, high_score, best_streak, country_code')
-      .order('high_score', { ascending: false })
-      .limit(10);
-
-    if (!pError && playersData) {
-      setPlayerLeaders(playersData);
-    }
-
-    // 2. TOP Země (agregujeme data ručně ze statistik)
-    const { data: allStats, error: cError } = await supabase
+    const { data: allStats, error } = await supabase
       .from('stats')
       .select('country_code, high_score');
 
-    if (!cError && allStats) {
+    if (!error && allStats) {
       const countryMap: Record<string, { total_score: number; player_count: number }> = {};
 
       allStats.forEach((item) => {
@@ -125,7 +115,7 @@ export default function App() {
         player_count: countryMap[code].player_count,
       })).sort((a, b) => b.total_score - a.total_score);
 
-      setCountryLeaders(aggregated.slice(0, 10));
+      setCountryLeaders(aggregated);
     }
 
     setLoadingLeaderboard(false);
@@ -138,54 +128,36 @@ export default function App() {
 
   // Uložení výsledku po dokončení hry
   useEffect(() => {
-    if (gameState === 'ended') {
-      console.log("Hra skončila, ukladám výsledky...");
-
+    if (gameState === 'ended' && user) {
       const saveStats = async () => {
         try {
-          const userId = user?.id;
-          const userEmail = user?.email || 'Anonymní Hráč';
-
-          if (!userId) {
-            console.log("Hráč není přihlášený. Výsledky se ukládají pouze pro přihlášené uživatele.");
-            return;
-          }
-
-          // Zjistíme předchozí skóre
           const { data: currentStats } = await supabase
             .from('stats')
             .select('high_score, best_streak, total_games')
-            .eq('user_id', userId)
+            .eq('user_id', user.id)
             .maybeSingle();
 
           const newHighScore = Math.max(currentStats?.high_score || 0, score);
           const newBestStreak = Math.max(currentStats?.best_streak || 0, streak + 1);
 
-          const { error } = await supabase
-            .from('stats')
-            .upsert({
-              user_id: userId,
-              email: userEmail,
-              high_score: newHighScore,
-              best_streak: newBestStreak,
-              total_games: (currentStats?.total_games || 0) + 1,
-              country_code: 'CZ', // Můžeš upravit dynamicky
-              updated_at: new Date().toISOString()
-            }, { onConflict: 'user_id' });
+          await supabase.from('stats').upsert({
+            user_id: user.id,
+            email: user.email,
+            high_score: newHighScore,
+            best_streak: newBestStreak,
+            total_games: (currentStats?.total_games || 0) + 1,
+            country_code: userCountry, // Uloží zjištěnou zemi (např. CZ, SK, US)
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'user_id' });
 
-          if (error) {
-            console.error('Chyba zápisu do Supabase:', error.message);
-          } else {
-            console.log('Skóre zapsáno do Supabase!');
-          }
         } catch (err) {
-          console.error('Chyba při volání API:', err);
+          console.error('Chyba při zápisu:', err);
         }
       };
 
       saveStats();
     }
-  }, [gameState, user, score, streak]);
+  }, [gameState, user, score, streak, userCountry]);
 
   const formatPrice = (priceUSD: number) => {
     const { rate, symbol } = EXCHANGE_RATES[currency as keyof typeof EXCHANGE_RATES];
@@ -211,6 +183,20 @@ export default function App() {
     }
   };
 
+  // Pomocná funkce pro zobrazení názvu/vlajky země podle kódů
+  const getCountryDisplay = (code: string) => {
+    const countries: Record<string, string> = {
+      CZ: '🇨🇿 Česko',
+      SK: '🇸🇰 Slovensko',
+      US: '🇺🇸 USA',
+      DE: '🇩🇪 Německo',
+      GB: '🇬🇧 Velká Británie',
+      PL: '🇵🇱 Polsko',
+      AT: '🇦🇹 Rakousko',
+    };
+    return countries[code] || `🌐 ${code}`;
+  };
+
   const q = DAILY_QUESTIONS[currentRound];
 
   return (
@@ -231,8 +217,8 @@ export default function App() {
               onClick={openLeaderboard}
               className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 hover:border-amber-500/50 text-amber-400 text-xs lg:text-sm font-bold px-3 py-2 rounded-lg transition cursor-pointer"
             >
-              <Trophy className="w-4 h-4" />
-              <span className="hidden sm:inline">Žebříček</span>
+              <Globe className="w-4 h-4" />
+              <span className="hidden sm:inline">Žebříček Zemí</span>
             </button>
 
             <select 
@@ -372,7 +358,7 @@ export default function App() {
 
             {!user && (
               <p className="text-xs text-amber-400 bg-amber-950/40 p-3 rounded-xl border border-amber-800/40">
-                ⚠️ Pro uložení skóre do žebříčku se musíte přihlásit!
+                ⚠️ Pro započítání skóre pro vaši zemi se musíte přihlásit!
               </p>
             )}
 
@@ -391,7 +377,7 @@ export default function App() {
         </footer>
       </div>
 
-      {/* Modal - Žebříček (Hráči & Země) */}
+      {/* Modal - Žebříček Zemí */}
       {isLeaderboardOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
@@ -402,91 +388,39 @@ export default function App() {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center justify-center gap-2 mb-4">
-              <Trophy className="w-7 h-7 text-amber-400" />
-              <h2 className="text-2xl font-black text-amber-400">ŽEBŘÍČEK</h2>
-            </div>
-
-            {/* Záložky Přepínání */}
-            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 mb-6">
-              <button
-                onClick={() => setLeaderboardTab('players')}
-                className={`flex-1 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition ${
-                  leaderboardTab === 'players' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <User className="w-4 h-4" /> Top Hráči
-              </button>
-              <button
-                onClick={() => setLeaderboardTab('countries')}
-                className={`flex-1 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition ${
-                  leaderboardTab === 'countries' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Globe className="w-4 h-4" /> Top Země
-              </button>
+            <div className="flex items-center justify-center gap-2 mb-6">
+              <Globe className="w-7 h-7 text-amber-400" />
+              <h2 className="text-2xl font-black text-amber-400">ŽEBŘÍČEK ZEMÍ</h2>
             </div>
 
             {loadingLeaderboard ? (
-              <div className="text-center py-8 text-slate-400">Načítám žebříček...</div>
-            ) : leaderboardTab === 'players' ? (
-              /* Zobrazení Hráčů */
-              playerLeaders.length === 0 ? (
-                <div className="text-center py-8 text-slate-400">Zatím nebyly zaznamenány žádné výsledky přihlášených hráčů.</div>
-              ) : (
-                <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-                  {playerLeaders.map((player, index) => {
-                    const displayName = player.email 
-                      ? player.email.split('@')[0].slice(0, 5) + '***'
-                      : 'Hráč';
-
-                    return (
-                      <div 
-                        key={player.user_id || index}
-                        className={`flex items-center justify-between p-3.5 rounded-2xl border ${
-                          index === 0 
-                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' 
-                            : 'bg-slate-800/50 border-slate-800 text-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="font-bold w-6 text-center text-slate-400">
-                            {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
-                          </span>
-                          <span className="font-semibold">{displayName}</span>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-black text-base text-emerald-400">{player.high_score || 0} b.</div>
-                          <div className="text-xs text-slate-400">Série: {player.best_streak || 0}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )
+              <div className="text-center py-8 text-slate-400">Načítám pořadí zemí...</div>
+            ) : countryLeaders.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">Zatím chybí data podle zemí.</div>
             ) : (
-              /* Zobrazení Zemí */
-              countryLeaders.length === 0 ? (
-                <div className="text-center py-8 text-slate-400">Zatím chybí data podle zemí.</div>
-              ) : (
-                <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-                  {countryLeaders.map((country, index) => (
-                    <div 
-                      key={country.country_code || index}
-                      className="flex items-center justify-between p-3.5 rounded-2xl border bg-slate-800/50 border-slate-800 text-slate-200"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold w-6 text-center text-slate-400">#{index + 1}</span>
-                        <span className="font-semibold">{country.country_code === 'CZ' ? '🇨🇿 Česko' : country.country_code}</span>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-black text-base text-amber-400">{country.total_score} b.</div>
-                        <div className="text-xs text-slate-400">{country.player_count} hráčů</div>
-                      </div>
+              <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                {countryLeaders.map((country, index) => (
+                  <div 
+                    key={country.country_code || index}
+                    className={`flex items-center justify-between p-3.5 rounded-2xl border ${
+                      index === 0 
+                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' 
+                        : 'bg-slate-800/50 border-slate-800 text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold w-6 text-center text-slate-400">
+                        {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+                      </span>
+                      <span className="font-semibold">{getCountryDisplay(country.country_code)}</span>
                     </div>
-                  ))}
-                </div>
-              )
+                    <div className="text-right">
+                      <div className="font-black text-base text-amber-400">{country.total_score} b.</div>
+                      <div className="text-xs text-slate-400">{country.player_count} hráčů</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
