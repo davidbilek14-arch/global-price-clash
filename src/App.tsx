@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, Flame, CheckCircle2, XCircle, Share2 } from 'lucide-react';
+import { Trophy, Flame, CheckCircle2, XCircle, Share2, LogOut } from 'lucide-react';
+import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
   USD: { rate: 1, symbol: '$', name: 'USD ($)' },
@@ -50,6 +51,22 @@ export default function App() {
   const [lastAnswerCorrect, setLastAnswerCorrect] = useState(null);
   const [streak, setStreak] = useState(3);
 
+  // Stav pro uživatele a modální okno
+  const [user, setUser] = useState<any>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   // Automatické uložení výsledku do Supabase po dokončení hry
   useEffect(() => {
     if (gameState === 'ended') {
@@ -58,7 +75,6 @@ export default function App() {
       const saveStats = async () => {
         try {
           const finalStreak = streak + 1;
-          const { data: { user } } = await supabase.auth.getUser();
 
           const { error } = await supabase
             .from('stats')
@@ -81,7 +97,7 @@ export default function App() {
 
       saveStats();
     }
-  }, [gameState]);
+  }, [gameState, user, streak]);
 
   const formatPrice = (priceUSD) => {
     const { rate, symbol } = EXCHANGE_RATES[currency];
@@ -124,7 +140,7 @@ export default function App() {
             <span className="text-xs lg:text-sm bg-emerald-950/80 text-emerald-400 px-3 py-1 rounded-full font-bold border border-emerald-800/60">DAILY</span>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 lg:gap-4">
             <select 
               value={currency} 
               onChange={(e) => setCurrency(e.target.value)}
@@ -139,6 +155,29 @@ export default function App() {
               <Flame className="w-4 h-4 lg:w-5 lg:h-5 fill-amber-400" />
               <span>{streak}</span>
             </div>
+
+            {/* Přihlašovací tlačítko / Profil */}
+            {user ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400 font-medium hidden sm:inline">
+                  {user.email?.split('@')[0]}
+                </span>
+                <button 
+                  onClick={() => supabase.auth.signOut()} 
+                  title="Odhlásit se"
+                  className="p-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setIsAuthOpen(true)}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs lg:text-sm font-bold px-3 py-2 rounded-lg transition cursor-pointer"
+              >
+                Přihlásit se
+              </button>
+            )}
           </div>
         </header>
 
@@ -258,6 +297,9 @@ export default function App() {
           Valuer © 2026 • Everyday Global Price Clash
         </footer>
       </div>
+
+      {/* Přihlašovací Modal */}
+      <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
     </div>
   );
 }
