@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, Flame, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2 } from 'lucide-react';
+import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2 } from 'lucide-react';
 import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
@@ -55,7 +55,6 @@ export default function App() {
   const [score, setScore] = useState(0);
   const [gameState, setGameState] = useState<'playing' | 'revealed' | 'ended' | 'already_played'>('playing');
   const [lastAnswerCorrect, setLastAnswerCorrect] = useState<boolean | null>(null);
-  const [streak, setStreak] = useState(0);
   const [userCountry, setUserCountry] = useState('US');
 
   const [user, setUser] = useState<any>(null);
@@ -86,13 +85,11 @@ export default function App() {
       if (currentUser) {
         const { data: stats } = await supabase
           .from('stats')
-          .select('last_played_date, best_streak')
+          .select('last_played_date')
           .eq('user_id', currentUser.id)
           .maybeSingle();
 
         if (stats) {
-          if (stats.best_streak) setStreak(stats.best_streak);
-
           const today = getTodayDateString();
           if (stats.last_played_date === today) {
             setGameState('already_played');
@@ -158,19 +155,16 @@ export default function App() {
 
           const { data: currentStats } = await supabase
             .from('stats')
-            .select('high_score, best_streak, total_games')
+            .select('high_score, total_games')
             .eq('user_id', user.id)
             .maybeSingle();
 
           const newHighScore = Math.max(currentStats?.high_score || 0, score);
-          const newStreak = streak + 1;
-          setStreak(newStreak);
 
           await supabase.from('stats').upsert({
             user_id: user.id,
             email: user.email,
             high_score: newHighScore,
-            best_streak: newStreak,
             total_games: (currentStats?.total_games || 0) + 1,
             country_code: userCountry,
             last_played_date: today,
@@ -185,7 +179,7 @@ export default function App() {
 
       saveStats();
     }
-  }, [gameState, user, score, streak, userCountry]);
+  }, [gameState, user, score, userCountry]);
 
   const formatPrice = (priceUSD: number) => {
     const { rate, symbol } = EXCHANGE_RATES[currency as keyof typeof EXCHANGE_RATES];
@@ -259,11 +253,6 @@ export default function App() {
               ))}
             </select>
 
-            <div className="flex items-center gap-1.5 text-amber-400 font-bold text-sm lg:text-base bg-amber-950/40 px-3 py-1.5 rounded-lg border border-amber-800/50">
-              <Flame className="w-4 h-4 lg:w-5 lg:h-5 fill-amber-400" />
-              <span>{streak}</span>
-            </div>
-
             {user ? (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-400 font-medium hidden sm:inline">
@@ -300,15 +289,6 @@ export default function App() {
               <p className="text-slate-400 mt-2 text-sm lg:text-base leading-relaxed">
                 You have already completed today's challenge. Come back tomorrow for a new set of prices!
               </p>
-            </div>
-
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 w-full flex justify-around shadow-xl">
-              <div>
-                <div className="text-xs text-slate-400 font-medium uppercase tracking-wider">Current Streak</div>
-                <div className="text-2xl lg:text-3xl font-black text-amber-400 flex items-center justify-center gap-1 mt-1">
-                  <Flame className="w-6 h-6 fill-amber-400" /> {streak}
-                </div>
-              </div>
             </div>
 
             <button 
@@ -400,14 +380,7 @@ export default function App() {
               <p className="text-slate-400 mt-2 text-sm lg:text-base">You got <span className="text-emerald-400 font-bold">{score}</span> out of {DAILY_QUESTIONS.length} correct</p>
             </div>
 
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 w-full flex justify-around shadow-xl">
-              <div>
-                <div className="text-xs text-slate-400 font-medium uppercase tracking-wider">Streak</div>
-                <div className="text-2xl lg:text-3xl font-black text-amber-400 flex items-center justify-center gap-1 mt-1">
-                  <Flame className="w-6 h-6 fill-amber-400" /> {streak}
-                </div>
-              </div>
-              <div className="border-r border-slate-800"></div>
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 w-full flex justify-center shadow-xl">
               <div>
                 <div className="text-xs text-slate-400 font-medium uppercase tracking-wider">Accuracy</div>
                 <div className="text-2xl lg:text-3xl font-black text-emerald-400 mt-1">{(score / DAILY_QUESTIONS.length) * 100}%</div>
