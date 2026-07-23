@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, Flame, CheckCircle2, XCircle, Share2, LogOut, X } from 'lucide-react';
+import { Trophy, Flame, CheckCircle2, XCircle, Share2, LogOut, X, Globe, User } from 'lucide-react';
 import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
@@ -48,6 +48,13 @@ interface LeaderboardUser {
   email: string;
   high_score: number;
   best_streak: number;
+  country_code?: string;
+}
+
+interface CountryStats {
+  country_code: string;
+  total_score: number;
+  player_count: number;
 }
 
 export default function App() {
@@ -62,7 +69,10 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
-  const [leaderboardData, setLeaderboardData] = useState<LeaderboardUser[]>([]);
+  const [leaderboardTab, setLeaderboardTab] = useState<'players' | 'countries'>('players');
+  
+  const [playerLeaders, setPlayerLeaders] = useState<LeaderboardUser[]>([]);
+  const [countryLeaders, setCountryLeaders] = useState<CountryStats[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
   useEffect(() => {
@@ -77,18 +87,47 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Načtení Žebříčku
+  // Načtení Žebříčku (Hráči i Země)
   const fetchLeaderboard = async () => {
     setLoadingLeaderboard(true);
-    const { data, error } = await supabase
+
+    // 1. TOP Hráči
+    const { data: playersData, error: pError } = await supabase
       .from('stats')
-      .select('user_id, email, high_score, best_streak')
+      .select('user_id, email, high_score, best_streak, country_code')
       .order('high_score', { ascending: false })
       .limit(10);
 
-    if (!error && data) {
-      setLeaderboardData(data);
+    if (!pError && playersData) {
+      setPlayerLeaders(playersData);
     }
+
+    // 2. TOP Země (agregujeme data ručně ze statistik)
+    const { data: allStats, error: cError } = await supabase
+      .from('stats')
+      .select('country_code, high_score');
+
+    if (!cError && allStats) {
+      const countryMap: Record<string, { total_score: number; player_count: number }> = {};
+
+      allStats.forEach((item) => {
+        const code = item.country_code || 'CZ';
+        if (!countryMap[code]) {
+          countryMap[code] = { total_score: 0, player_count: 0 };
+        }
+        countryMap[code].total_score += item.high_score || 0;
+        countryMap[code].player_count += 1;
+      });
+
+      const aggregated: CountryStats[] = Object.keys(countryMap).map((code) => ({
+        country_code: code,
+        total_score: countryMap[code].total_score,
+        player_count: countryMap[code].player_count,
+      })).sort((a, b) => b.total_score - a.total_score);
+
+      setCountryLeaders(aggregated.slice(0, 10));
+    }
+
     setLoadingLeaderboard(false);
   };
 
@@ -97,43 +136,50 @@ export default function App() {
     setIsLeaderboardOpen(true);
   };
 
-  // Automatické uložení výsledku do Supabase po dokončení hry
+  // Uložení výsledku po dokončení hry
   useEffect(() => {
-    if (gameState === 'ended' && user) {
-      console.log("Hra skončila, ukládám skóre do Supabase...");
+    if (gameState === 'ended') {
+      console.log("Hra skončila, ukladám výsledky...");
 
       const saveStats = async () => {
         try {
-          const finalStreak = streak + 1;
+          const userId = user?.id;
+          const userEmail = user?.email || 'Anonymní Hráč';
 
-          // Načteme dosavadní statistiky pro zachování maxima
+          if (!userId) {
+            console.log("Hráč není přihlášený. Výsledky se ukládají pouze pro přihlášené uživatele.");
+            return;
+          }
+
+          // Zjistíme předchozí skóre
           const { data: currentStats } = await supabase
             .from('stats')
             .select('high_score, best_streak, total_games')
-            .eq('user_id', user.id)
-            .single();
+            .eq('user_id', userId)
+            .maybeSingle();
 
           const newHighScore = Math.max(currentStats?.high_score || 0, score);
-          const newBestStreak = Math.max(currentStats?.best_streak || 0, finalStreak);
+          const newBestStreak = Math.max(currentStats?.best_streak || 0, streak + 1);
 
           const { error } = await supabase
             .from('stats')
             .upsert({
-              user_id: user.id,
-              email: user.email,
+              user_id: userId,
+              email: userEmail,
               high_score: newHighScore,
               best_streak: newBestStreak,
               total_games: (currentStats?.total_games || 0) + 1,
+              country_code: 'CZ', // Můžeš upravit dynamicky
               updated_at: new Date().toISOString()
-            });
+            }, { onConflict: 'user_id' });
 
           if (error) {
             console.error('Chyba zápisu do Supabase:', error.message);
           } else {
-            console.log('Skóre bylo úspěšně zapsáno do Supabase!');
+            console.log('Skóre zapsáno do Supabase!');
           }
         } catch (err) {
-          console.error('Chyba při volání:', err);
+          console.error('Chyba při volání API:', err);
         }
       };
 
@@ -169,10 +215,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 lg:p-8 relative overflow-hidden font-sans">
-      {/* Vizuální efekty pozadí na desktopu */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
-      {/* Container */}
       <div className="max-w-5xl mx-auto w-full flex-1 flex flex-col justify-between z-10">
         
         {/* Header */}
@@ -183,11 +227,9 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-2 lg:gap-3">
-            {/* Tlačítko Žebříčku */}
             <button
               onClick={openLeaderboard}
               className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 hover:border-amber-500/50 text-amber-400 text-xs lg:text-sm font-bold px-3 py-2 rounded-lg transition cursor-pointer"
-              title="Zobrazit Žebříček"
             >
               <Trophy className="w-4 h-4" />
               <span className="hidden sm:inline">Žebříček</span>
@@ -208,7 +250,6 @@ export default function App() {
               <span>{streak}</span>
             </div>
 
-            {/* Přihlašovací tlačítko / Profil */}
             {user ? (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-400 font-medium hidden sm:inline">
@@ -240,10 +281,7 @@ export default function App() {
               ROUND {currentRound + 1} OF {DAILY_QUESTIONS.length}
             </div>
 
-            {/* Desktop / Mobile Grid */}
             <div className="relative grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-12 items-stretch">
-              
-              {/* Item A */}
               <div className="bg-slate-900/90 backdrop-blur border border-slate-800 rounded-3xl p-6 lg:p-10 flex flex-col justify-between shadow-2xl min-h-[220px] lg:min-h-[300px]">
                 <div>
                   <span className="text-xs lg:text-sm text-slate-400 font-medium uppercase tracking-wider">{q.itemA.location}</span>
@@ -252,12 +290,10 @@ export default function App() {
                 <div className="text-3xl lg:text-5xl font-black text-emerald-400 mt-6">{formatPrice(q.itemA.priceUSD)}</div>
               </div>
 
-              {/* VS Badge na PC */}
               <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 bg-slate-950 border-2 border-slate-800 text-slate-400 font-black text-sm w-12 h-12 rounded-full items-center justify-center shadow-2xl">
                 VS
               </div>
 
-              {/* Item B */}
               <div className="bg-slate-900/90 backdrop-blur border border-slate-800 rounded-3xl p-6 lg:p-10 flex flex-col justify-between shadow-2xl min-h-[220px] lg:min-h-[300px]">
                 <div>
                   <span className="text-xs lg:text-sm text-slate-400 font-medium uppercase tracking-wider">{q.itemB.location}</span>
@@ -274,7 +310,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Ovládací tlačítka a Výsledky */}
             {gameState === 'playing' ? (
               <div className="grid grid-cols-2 gap-4 max-w-xl mx-auto w-full mt-4">
                 <button 
@@ -335,6 +370,12 @@ export default function App() {
               </div>
             </div>
 
+            {!user && (
+              <p className="text-xs text-amber-400 bg-amber-950/40 p-3 rounded-xl border border-amber-800/40">
+                ⚠️ Pro uložení skóre do žebříčku se musíte přihlásit!
+              </p>
+            )}
+
             <button 
               onClick={() => alert("Copied score to clipboard!")}
               className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base lg:text-lg flex items-center justify-center gap-2 shadow-xl cursor-pointer"
@@ -350,7 +391,7 @@ export default function App() {
         </footer>
       </div>
 
-      {/* Modal - Žebříček (Leaderboard) */}
+      {/* Modal - Žebříček (Hráči & Země) */}
       {isLeaderboardOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
@@ -361,45 +402,91 @@ export default function App() {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center justify-center gap-2 mb-6">
+            <div className="flex items-center justify-center gap-2 mb-4">
               <Trophy className="w-7 h-7 text-amber-400" />
-              <h2 className="text-2xl font-black text-amber-400">TOP 10 HRÁČŮ</h2>
+              <h2 className="text-2xl font-black text-amber-400">ŽEBŘÍČEK</h2>
+            </div>
+
+            {/* Záložky Přepínání */}
+            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 mb-6">
+              <button
+                onClick={() => setLeaderboardTab('players')}
+                className={`flex-1 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition ${
+                  leaderboardTab === 'players' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <User className="w-4 h-4" /> Top Hráči
+              </button>
+              <button
+                onClick={() => setLeaderboardTab('countries')}
+                className={`flex-1 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition ${
+                  leaderboardTab === 'countries' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Globe className="w-4 h-4" /> Top Země
+              </button>
             </div>
 
             {loadingLeaderboard ? (
               <div className="text-center py-8 text-slate-400">Načítám žebříček...</div>
-            ) : leaderboardData.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">Zatím nebyly zaznamenány žádné výsledky.</div>
-            ) : (
-              <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-                {leaderboardData.map((player, index) => {
-                  const displayName = player.email 
-                    ? player.email.split('@')[0].slice(0, 4) + '***'
-                    : 'Hráč';
+            ) : leaderboardTab === 'players' ? (
+              /* Zobrazení Hráčů */
+              playerLeaders.length === 0 ? (
+                <div className="text-center py-8 text-slate-400">Zatím nebyly zaznamenány žádné výsledky přihlášených hráčů.</div>
+              ) : (
+                <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                  {playerLeaders.map((player, index) => {
+                    const displayName = player.email 
+                      ? player.email.split('@')[0].slice(0, 5) + '***'
+                      : 'Hráč';
 
-                  return (
+                    return (
+                      <div 
+                        key={player.user_id || index}
+                        className={`flex items-center justify-between p-3.5 rounded-2xl border ${
+                          index === 0 
+                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' 
+                            : 'bg-slate-800/50 border-slate-800 text-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold w-6 text-center text-slate-400">
+                            {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+                          </span>
+                          <span className="font-semibold">{displayName}</span>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-black text-base text-emerald-400">{player.high_score || 0} b.</div>
+                          <div className="text-xs text-slate-400">Série: {player.best_streak || 0}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : (
+              /* Zobrazení Zemí */
+              countryLeaders.length === 0 ? (
+                <div className="text-center py-8 text-slate-400">Zatím chybí data podle zemí.</div>
+              ) : (
+                <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                  {countryLeaders.map((country, index) => (
                     <div 
-                      key={player.user_id || index}
-                      className={`flex items-center justify-between p-3.5 rounded-2xl border ${
-                        index === 0 
-                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' 
-                          : 'bg-slate-800/50 border-slate-800 text-slate-200'
-                      }`}
+                      key={country.country_code || index}
+                      className="flex items-center justify-between p-3.5 rounded-2xl border bg-slate-800/50 border-slate-800 text-slate-200"
                     >
                       <div className="flex items-center gap-3">
-                        <span className="font-bold w-6 text-center text-slate-400">
-                          {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
-                        </span>
-                        <span className="font-semibold">{displayName}</span>
+                        <span className="font-bold w-6 text-center text-slate-400">#{index + 1}</span>
+                        <span className="font-semibold">{country.country_code === 'CZ' ? '🇨🇿 Česko' : country.country_code}</span>
                       </div>
                       <div className="text-right">
-                        <div className="font-black text-base text-emerald-400">{player.high_score || 0} b.</div>
-                        <div className="text-xs text-slate-400">Série: {player.best_streak || 0}</div>
+                        <div className="font-black text-base text-amber-400">{country.total_score} b.</div>
+                        <div className="text-xs text-slate-400">{country.player_count} hráčů</div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )
             )}
           </div>
         </div>
