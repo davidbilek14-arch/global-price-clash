@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, Flame, CheckCircle2, XCircle, Share2, LogOut } from 'lucide-react';
+import { Trophy, Flame, CheckCircle2, XCircle, Share2, LogOut, X } from 'lucide-react';
 import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
@@ -43,17 +43,27 @@ const DAILY_QUESTIONS = [
   }
 ];
 
+interface LeaderboardUser {
+  user_id: string;
+  email: string;
+  high_score: number;
+  best_streak: number;
+}
+
 export default function App() {
   const [currency, setCurrency] = useState('USD');
   const [currentRound, setCurrentRound] = useState(0);
   const [score, setScore] = useState(0);
   const [gameState, setGameState] = useState('playing');
-  const [lastAnswerCorrect, setLastAnswerCorrect] = useState(null);
+  const [lastAnswerCorrect, setLastAnswerCorrect] = useState<boolean | null>(null);
   const [streak, setStreak] = useState(3);
 
-  // Stav pro uživatele a modální okno
+  // Stav pro uživatele a modální okna
   const [user, setUser] = useState<any>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
+  const [leaderboardData, setLeaderboardData] = useState<LeaderboardUser[]>([]);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -67,21 +77,53 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Načtení Žebříčku
+  const fetchLeaderboard = async () => {
+    setLoadingLeaderboard(true);
+    const { data, error } = await supabase
+      .from('stats')
+      .select('user_id, email, high_score, best_streak')
+      .order('high_score', { ascending: false })
+      .limit(10);
+
+    if (!error && data) {
+      setLeaderboardData(data);
+    }
+    setLoadingLeaderboard(false);
+  };
+
+  const openLeaderboard = () => {
+    fetchLeaderboard();
+    setIsLeaderboardOpen(true);
+  };
+
   // Automatické uložení výsledku do Supabase po dokončení hry
   useEffect(() => {
-    if (gameState === 'ended') {
+    if (gameState === 'ended' && user) {
       console.log("Hra skončila, ukládám skóre do Supabase...");
 
       const saveStats = async () => {
         try {
           const finalStreak = streak + 1;
 
+          // Načteme dosavadní statistiky pro zachování maxima
+          const { data: currentStats } = await supabase
+            .from('stats')
+            .select('high_score, best_streak, total_games')
+            .eq('user_id', user.id)
+            .single();
+
+          const newHighScore = Math.max(currentStats?.high_score || 0, score);
+          const newBestStreak = Math.max(currentStats?.best_streak || 0, finalStreak);
+
           const { error } = await supabase
             .from('stats')
             .upsert({
-              user_id: user?.id || null,
-              best_streak: finalStreak,
-              total_games: 1,
+              user_id: user.id,
+              email: user.email,
+              high_score: newHighScore,
+              best_streak: newBestStreak,
+              total_games: (currentStats?.total_games || 0) + 1,
               updated_at: new Date().toISOString()
             });
 
@@ -97,15 +139,15 @@ export default function App() {
 
       saveStats();
     }
-  }, [gameState, user, streak]);
+  }, [gameState, user, score, streak]);
 
-  const formatPrice = (priceUSD) => {
-    const { rate, symbol } = EXCHANGE_RATES[currency];
+  const formatPrice = (priceUSD: number) => {
+    const { rate, symbol } = EXCHANGE_RATES[currency as keyof typeof EXCHANGE_RATES];
     const converted = Math.round(priceUSD * rate);
     return currency === 'CZK' ? `${converted} ${symbol}` : `${symbol}${converted}`;
   };
 
-  const handleGuess = (isHigher) => {
+  const handleGuess = (isHigher: boolean) => {
     const q = DAILY_QUESTIONS[currentRound];
     const isCorrect = isHigher ? q.itemB.priceUSD >= q.itemA.priceUSD : q.itemB.priceUSD <= q.itemA.priceUSD;
 
@@ -140,14 +182,24 @@ export default function App() {
             <span className="text-xs lg:text-sm bg-emerald-950/80 text-emerald-400 px-3 py-1 rounded-full font-bold border border-emerald-800/60">DAILY</span>
           </div>
           
-          <div className="flex items-center gap-3 lg:gap-4">
+          <div className="flex items-center gap-2 lg:gap-3">
+            {/* Tlačítko Žebříčku */}
+            <button
+              onClick={openLeaderboard}
+              className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 hover:border-amber-500/50 text-amber-400 text-xs lg:text-sm font-bold px-3 py-2 rounded-lg transition cursor-pointer"
+              title="Zobrazit Žebříček"
+            >
+              <Trophy className="w-4 h-4" />
+              <span className="hidden sm:inline">Žebříček</span>
+            </button>
+
             <select 
               value={currency} 
               onChange={(e) => setCurrency(e.target.value)}
               className="bg-slate-900 border border-slate-700 text-xs lg:text-sm font-bold rounded-lg px-3 py-2 text-slate-300 focus:outline-none focus:border-emerald-500 cursor-pointer"
             >
               {Object.keys(EXCHANGE_RATES).map(code => (
-                <option key={code} value={code}>{EXCHANGE_RATES[code].name}</option>
+                <option key={code} value={code}>{EXCHANGE_RATES[code as keyof typeof EXCHANGE_RATES].name}</option>
               ))}
             </select>
 
@@ -297,6 +349,61 @@ export default function App() {
           Valuer © 2026 • Everyday Global Price Clash
         </footer>
       </div>
+
+      {/* Modal - Žebříček (Leaderboard) */}
+      {isLeaderboardOpen && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
+            <button 
+              onClick={() => setIsLeaderboardOpen(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center justify-center gap-2 mb-6">
+              <Trophy className="w-7 h-7 text-amber-400" />
+              <h2 className="text-2xl font-black text-amber-400">TOP 10 HRÁČŮ</h2>
+            </div>
+
+            {loadingLeaderboard ? (
+              <div className="text-center py-8 text-slate-400">Načítám žebříček...</div>
+            ) : leaderboardData.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">Zatím nebyly zaznamenány žádné výsledky.</div>
+            ) : (
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                {leaderboardData.map((player, index) => {
+                  const displayName = player.email 
+                    ? player.email.split('@')[0].slice(0, 4) + '***'
+                    : 'Hráč';
+
+                  return (
+                    <div 
+                      key={player.user_id || index}
+                      className={`flex items-center justify-between p-3.5 rounded-2xl border ${
+                        index === 0 
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' 
+                          : 'bg-slate-800/50 border-slate-800 text-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold w-6 text-center text-slate-400">
+                          {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+                        </span>
+                        <span className="font-semibold">{displayName}</span>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-black text-base text-emerald-400">{player.high_score || 0} b.</div>
+                        <div className="text-xs text-slate-400">Série: {player.best_streak || 0}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Přihlašovací Modal */}
       <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
