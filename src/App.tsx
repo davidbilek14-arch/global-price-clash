@@ -65,12 +65,12 @@ export default function App() {
 
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
-  // Auto-detect country via IP
+  // Auto-detect country via ipwho.is (CORS-friendly)
   useEffect(() => {
-    fetch('https://ipapi.co/json/')
+    fetch('https://ipwho.is/')
       .then(res => res.json())
       .then(data => {
-        if (data && data.country_code) {
+        if (data && data.success && data.country_code) {
           setUserCountry(data.country_code);
         }
       })
@@ -89,11 +89,7 @@ export default function App() {
           .eq('user_id', currentUser.id)
           .maybeSingle();
 
-        if (error) {
-          console.error('Error checking user status:', error);
-        }
-
-        if (stats) {
+        if (!error && stats) {
           const today = getTodayDateString();
           if (stats.last_played_date === today) {
             setGameState('already_played');
@@ -128,7 +124,6 @@ export default function App() {
     }
 
     if (allStats) {
-      console.log('Fetched raw stats for leaderboard:', allStats);
       const countryMap: Record<string, { total_score: number; player_count: number }> = {};
 
       allStats.forEach((item) => {
@@ -157,13 +152,14 @@ export default function App() {
     setIsLeaderboardOpen(true);
   };
 
-  // Save game results & lock for today
+  // Save game results securely via safe insert/update logic
   useEffect(() => {
     if (gameState === 'ended' && user) {
       const saveStats = async () => {
         try {
           const today = getTodayDateString();
 
+          // 1. Zjistíme, jestli už záznam pro uživatele existuje
           const { data: currentStats } = await supabase
             .from('stats')
             .select('high_score, total_games')
@@ -171,19 +167,40 @@ export default function App() {
             .maybeSingle();
 
           const newHighScore = Math.max(currentStats?.high_score || 0, score);
+          const newTotalGames = (currentStats?.total_games || 0) + 1;
 
-          const { error } = await supabase.from('stats').upsert({
-            user_id: user.id,
-            email: user.email,
-            high_score: newHighScore,
-            total_games: (currentStats?.total_games || 0) + 1,
-            country_code: userCountry,
-            last_played_date: today,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'user_id' });
+          let error;
+          if (currentStats) {
+            // Update stávajícího záznamu
+            const res = await supabase
+              .from('stats')
+              .update({
+                high_score: newHighScore,
+                total_games: newTotalGames,
+                country_code: userCountry,
+                last_played_date: today,
+                updated_at: new Date().toISOString()
+              })
+              .eq('user_id', user.id);
+            error = res.error;
+          } else {
+            // Insert nového záznamu, pokud ještě neexistoval
+            const res = await supabase
+              .from('stats')
+              .insert({
+                user_id: user.id,
+                email: user.email,
+                high_score: newHighScore,
+                total_games: newTotalGames,
+                country_code: userCountry,
+                last_played_date: today,
+                updated_at: new Date().toISOString()
+              });
+            error = res.error;
+          }
 
           if (error) {
-            console.error('Supabase upsert error:', error);
+            console.error('Supabase save error:', error);
           } else {
             console.log('Score & Daily Status successfully recorded!');
           }
@@ -446,7 +463,7 @@ export default function App() {
             {loadingLeaderboard ? (
               <div className="text-center py-8 text-slate-400">Loading rankings...</div>
             ) : countryLeaders.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">No country data recorded yet. (Play & save a score first!)</div>
+              <div className="text-center py-8 text-slate-400">No country data recorded yet.</div>
             ) : (
               <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                 {countryLeaders.map((country, index) => (
