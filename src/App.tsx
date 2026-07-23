@@ -83,11 +83,15 @@ export default function App() {
       setUser(currentUser);
 
       if (currentUser) {
-        const { data: stats } = await supabase
+        const { data: stats, error } = await supabase
           .from('stats')
           .select('last_played_date')
           .eq('user_id', currentUser.id)
           .maybeSingle();
+
+        if (error) {
+          console.error('Error checking user status:', error);
+        }
 
         if (stats) {
           const today = getTodayDateString();
@@ -117,7 +121,14 @@ export default function App() {
       .from('stats')
       .select('country_code, high_score');
 
-    if (!error && allStats) {
+    if (error) {
+      console.error('Error fetching leaderboard data:', error);
+      setLoadingLeaderboard(false);
+      return;
+    }
+
+    if (allStats) {
+      console.log('Fetched raw stats for leaderboard:', allStats);
       const countryMap: Record<string, { total_score: number; player_count: number }> = {};
 
       allStats.forEach((item) => {
@@ -125,7 +136,7 @@ export default function App() {
         if (!countryMap[code]) {
           countryMap[code] = { total_score: 0, player_count: 0 };
         }
-        countryMap[code].total_score += item.high_score || 0;
+        countryMap[code].total_score += Number(item.high_score) || 0;
         countryMap[code].player_count += 1;
       });
 
@@ -161,7 +172,7 @@ export default function App() {
 
           const newHighScore = Math.max(currentStats?.high_score || 0, score);
 
-          await supabase.from('stats').upsert({
+          const { error } = await supabase.from('stats').upsert({
             user_id: user.id,
             email: user.email,
             high_score: newHighScore,
@@ -171,7 +182,11 @@ export default function App() {
             updated_at: new Date().toISOString()
           }, { onConflict: 'user_id' });
 
-          console.log('Score & Daily Status successfully recorded!');
+          if (error) {
+            console.error('Supabase upsert error:', error);
+          } else {
+            console.log('Score & Daily Status successfully recorded!');
+          }
         } catch (err) {
           console.error('Error saving score:', err);
         }
@@ -431,7 +446,7 @@ export default function App() {
             {loadingLeaderboard ? (
               <div className="text-center py-8 text-slate-400">Loading rankings...</div>
             ) : countryLeaders.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">No country data recorded yet.</div>
+              <div className="text-center py-8 text-slate-400">No country data recorded yet. (Play & save a score first!)</div>
             ) : (
               <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                 {countryLeaders.map((country, index) => (
