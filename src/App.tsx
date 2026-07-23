@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Trophy, Flame, Globe, CheckCircle2, XCircle, Share2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Trophy, Flame, CheckCircle2, XCircle, Share2, Globe } from 'lucide-react';
 
 // Kurzy vůči USD
 const EXCHANGE_RATES = {
@@ -77,28 +77,28 @@ export default function App() {
   const q = DAILY_QUESTIONS[currentRound];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 max-w-md mx-auto font-sans">
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 md:p-8 max-w-4xl mx-auto font-sans">
       {/* Header */}
-      <header className="flex justify-between items-center border-b border-slate-800 pb-3">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-black tracking-wider text-emerald-400">VALUER</h1>
-          <span className="text-xs bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded-full font-bold border border-emerald-800">DAILY</span>
+      <header className="flex justify-between items-center border-b border-slate-800 pb-4">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl md:text-3xl font-black tracking-wider text-emerald-400">VALUER</h1>
+          <span className="text-xs bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-full font-bold border border-emerald-800">DAILY</span>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           {/* Currency Selector */}
           <select 
             value={currency} 
             onChange={(e) => setCurrency(e.target.value)}
-            className="bg-slate-900 border border-slate-700 text-xs font-bold rounded px-2 py-1 text-slate-300 focus:outline-none focus:border-emerald-500"
+            className="bg-slate-900 border border-slate-700 text-xs md:text-sm font-bold rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:border-emerald-500 cursor-pointer"
           >
             {Object.keys(EXCHANGE_RATES).map(code => (
               <option key={code} value={code}>{EXCHANGE_RATES[code].name}</option>
             ))}
           </select>
 
-          <div className="flex items-center gap-1 text-amber-400 font-bold text-sm">
-            <Flame className="w-4 h-4 fill-amber-400" />
+          <div className="flex items-center gap-1.5 text-amber-400 font-bold text-sm md:text-base bg-amber-950/40 px-3 py-1 rounded-lg border border-amber-800/50">
+            <Flame className="w-4 h-4 md:w-5 md:h-5 fill-amber-400" />
             <span>{streak}</span>
           </div>
         </div>
@@ -106,63 +106,74 @@ export default function App() {
 
       {/* Main Game Screen */}
       {gameState !== 'ended' ? (
-        <main className="flex-1 flex flex-col justify-center gap-4 my-4">
-          <div className="text-center text-xs text-slate-400 font-semibold tracking-wide">
+        <main className="flex-1 flex flex-col justify-center gap-6 my-6">
+          <div className="text-center text-xs md:text-sm text-slate-400 font-semibold tracking-wider">
             ROUND {currentRound + 1} OF {DAILY_QUESTIONS.length}
           </div>
 
-          {/* Item A (Base) */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col gap-1 shadow-lg">
-            <span className="text-xs text-slate-400 font-medium">{q.itemA.location}</span>
-            <h2 className="text-lg font-bold">{q.itemA.name}</h2>
-            <div className="text-3xl font-black text-emerald-400 mt-2">{formatPrice(q.itemA.priceUSD)}</div>
-          </div>
-
-          <div className="text-center font-black text-xs text-slate-500 tracking-widest my-[-8px] z-10">VS</div>
-
-          {/* Item B (Target to Guess) */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col gap-1 shadow-lg relative overflow-hidden">
-            <span className="text-xs text-slate-400 font-medium">{q.itemB.location}</span>
-            <h2 className="text-lg font-bold">{q.itemB.name}</h2>
+          {/* Desktop/Mobile Cards Grid */}
+          <div className="relative grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 items-center">
             
-            {gameState === 'revealed' ? (
-              <div className="text-3xl font-black text-emerald-400 mt-2 animate-bounce">
-                {formatPrice(q.itemB.priceUSD)}
+            {/* Item A (Base) */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 flex flex-col justify-between h-48 md:h-64 shadow-xl">
+              <div>
+                <span className="text-xs md:text-sm text-slate-400 font-medium">{q.itemA.location}</span>
+                <h2 className="text-lg md:text-2xl font-bold mt-1">{q.itemA.name}</h2>
               </div>
-            ) : (
-              <div className="text-3xl font-black text-slate-600 mt-2">? ? ?</div>
-            )}
+              <div className="text-3xl md:text-4xl font-black text-emerald-400 mt-4">{formatPrice(q.itemA.priceUSD)}</div>
+            </div>
+
+            {/* VS Badge in Center */}
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 bg-slate-950 border border-slate-800 text-slate-400 font-black text-xs md:text-sm px-3 py-1.5 rounded-full shadow-2xl hidden md:block">
+              VS
+            </div>
+
+            {/* Item B (Target) */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 flex flex-col justify-between h-48 md:h-64 shadow-xl">
+              <div>
+                <span className="text-xs md:text-sm text-slate-400 font-medium">{q.itemB.location}</span>
+                <h2 className="text-lg md:text-2xl font-bold mt-1">{q.itemB.name}</h2>
+              </div>
+              
+              {gameState === 'revealed' ? (
+                <div className="text-3xl md:text-4xl font-black text-emerald-400 mt-4 animate-bounce">
+                  {formatPrice(q.itemB.priceUSD)}
+                </div>
+              ) : (
+                <div className="text-3xl md:text-4xl font-black text-slate-700 mt-4">? ? ?</div>
+              )}
+            </div>
           </div>
 
-          {/* Actions / Feedback */}
+          {/* Actions & Feedback */}
           {gameState === 'playing' ? (
-            <div className="grid grid-cols-2 gap-3 mt-2">
+            <div className="grid grid-cols-2 gap-4 max-w-lg mx-auto w-full mt-2">
               <button 
                 onClick={() => handleGuess(true)}
-                className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition font-bold py-4 rounded-xl text-lg shadow-lg"
+                className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition font-bold py-4 rounded-xl text-lg md:text-xl shadow-lg cursor-pointer"
               >
                 HIGHER ▲
               </button>
               <button 
                 onClick={() => handleGuess(false)}
-                className="bg-rose-600 hover:bg-rose-500 active:scale-95 transition font-bold py-4 rounded-xl text-lg shadow-lg"
+                className="bg-rose-600 hover:bg-rose-500 active:scale-95 transition font-bold py-4 rounded-xl text-lg md:text-xl shadow-lg cursor-pointer"
               >
                 LOWER ▼
               </button>
             </div>
           ) : (
-            <div className="flex flex-col gap-3 mt-2">
-              <div className={`p-4 rounded-xl border flex flex-col gap-1 ${lastAnswerCorrect ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300' : 'bg-rose-950/60 border-rose-800 text-rose-300'}`}>
-                <div className="flex items-center gap-2 font-bold">
-                  {lastAnswerCorrect ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <XCircle className="w-5 h-5 text-rose-400" />}
+            <div className="flex flex-col gap-4 max-w-lg mx-auto w-full mt-2">
+              <div className={`p-4 md:p-5 rounded-xl border flex flex-col gap-1.5 ${lastAnswerCorrect ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300' : 'bg-rose-950/60 border-rose-800 text-rose-300'}`}>
+                <div className="flex items-center gap-2 font-bold text-base md:text-lg">
+                  {lastAnswerCorrect ? <CheckCircle2 className="w-6 h-6 text-emerald-400" /> : <XCircle className="w-6 h-6 text-rose-400" />}
                   <span>{lastAnswerCorrect ? 'Correct!' : 'Wrong!'}</span>
                 </div>
-                <p className="text-xs opacity-90 mt-1">{q.funFact}</p>
+                <p className="text-xs md:text-sm opacity-90 leading-relaxed">{q.funFact}</p>
               </div>
 
               <button 
                 onClick={nextQuestion}
-                className="bg-slate-800 hover:bg-slate-700 active:scale-95 transition font-bold py-3 rounded-xl text-sm border border-slate-700"
+                className="bg-slate-800 hover:bg-slate-700 active:scale-95 transition font-bold py-3.5 rounded-xl text-sm md:text-base border border-slate-700 cursor-pointer"
               >
                 NEXT ROUND →
               </button>
@@ -171,35 +182,33 @@ export default function App() {
         </main>
       ) : (
         /* Game Over Summary */
-        <main className="flex-1 flex flex-col justify-center items-center text-center gap-5 my-4">
-          <div className="w-16 h-16 bg-emerald-950 border border-emerald-700 rounded-full flex items-center justify-center">
-            <Trophy className="w-8 h-8 text-emerald-400" />
+        <main className="flex-1 flex flex-col justify-center items-center text-center gap-6 my-6 max-w-md mx-auto w-full">
+          <div className="w-20 h-20 bg-emerald-950 border border-emerald-700 rounded-full flex items-center justify-center shadow-lg">
+            <Trophy className="w-10 h-10 text-emerald-400" />
           </div>
 
           <div>
-            <h2 className="text-2xl font-black">Daily Complete!</h2>
-            <p className="text-sm text-slate-400 mt-1">You got <span className="text-emerald-400 font-bold">{score}</span> out of {DAILY_QUESTIONS.length} correct</p>
+            <h2 className="text-3xl font-black">Daily Complete!</h2>
+            <p className="text-slate-400 mt-1">You got <span className="text-emerald-400 font-bold">{score}</span> out of {DAILY_QUESTIONS.length} correct</p>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 w-full flex justify-around">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 w-full flex justify-around">
             <div>
               <div className="text-xs text-slate-400 font-medium">Streak</div>
-              <div className="text-xl font-black text-amber-400 flex items-center justify-center gap-1">
-                <Flame className="w-5 h-5 fill-amber-400" /> {streak + 1}
+              <div className="text-2xl font-black text-amber-400 flex items-center justify-center gap-1 mt-1">
+                <Flame className="w-6 h-6 fill-amber-400" /> {streak + 1}
               </div>
             </div>
             <div className="border-r border-slate-800"></div>
             <div>
               <div className="text-xs text-slate-400 font-medium">Accuracy</div>
-              <div className="text-xl font-black text-emerald-400">{(score / DAILY_QUESTIONS.length) * 100}%</div>
+              <div className="text-2xl font-black text-emerald-400 mt-1">{(score / DAILY_QUESTIONS.length) * 100}%</div>
             </div>
           </div>
 
           <button 
-            onClick={() => {
-              alert("Copied score to clipboard! Paste it on WhatsApp/Twitter.");
-            }}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition font-bold py-3.5 rounded-xl text-md flex items-center justify-center gap-2 shadow-lg"
+            onClick={() => alert("Copied score to clipboard!")}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition font-bold py-4 rounded-xl text-base flex items-center justify-center gap-2 shadow-lg cursor-pointer"
           >
             <Share2 className="w-5 h-5" /> Share Results
           </button>
@@ -207,7 +216,7 @@ export default function App() {
       )}
 
       {/* Footer */}
-      <footer className="text-center text-xs text-slate-600 pt-2 border-t border-slate-900">
+      <footer className="text-center text-xs text-slate-600 pt-4 border-t border-slate-900">
         Valuer © 2026 • Everyday Global Price Clash
       </footer>
     </div>
