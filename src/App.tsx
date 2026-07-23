@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, Flame, CheckCircle2, XCircle, Share2, LogOut, X, Globe } from 'lucide-react';
+import { Trophy, Flame, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2 } from 'lucide-react';
 import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
@@ -53,19 +53,20 @@ export default function App() {
   const [currency, setCurrency] = useState('USD');
   const [currentRound, setCurrentRound] = useState(0);
   const [score, setScore] = useState(0);
-  const [gameState, setGameState] = useState('playing');
+  const [gameState, setGameState] = useState<'playing' | 'revealed' | 'ended' | 'already_played'>('playing');
   const [lastAnswerCorrect, setLastAnswerCorrect] = useState<boolean | null>(null);
-  const [streak, setStreak] = useState(3);
-  const [userCountry, setUserCountry] = useState('US'); // Default country code
+  const [streak, setStreak] = useState(0);
+  const [userCountry, setUserCountry] = useState('US');
 
-  // User and modal states
   const [user, setUser] = useState<any>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [countryLeaders, setCountryLeaders] = useState<CountryStats[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
-  // Auto-detect user country via IP
+  const getTodayDateString = () => new Date().toISOString().split('T')[0];
+
+  // Auto-detect country via IP
   useEffect(() => {
     fetch('https://ipapi.co/json/')
       .then(res => res.json())
@@ -77,19 +78,41 @@ export default function App() {
       .catch(() => console.log('IP detection failed, defaulting to US'));
   }, []);
 
+  // Check Auth & Daily Played Status
   useEffect(() => {
+    const checkUserAndDailyStatus = async (currentUser: any) => {
+      setUser(currentUser);
+
+      if (currentUser) {
+        const { data: stats } = await supabase
+          .from('stats')
+          .select('last_played_date, best_streak')
+          .eq('user_id', currentUser.id)
+          .maybeSingle();
+
+        if (stats) {
+          if (stats.best_streak) setStreak(stats.best_streak);
+
+          const today = getTodayDateString();
+          if (stats.last_played_date === today) {
+            setGameState('already_played');
+          }
+        }
+      }
+    };
+
     supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user);
+      checkUserAndDailyStatus(user);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      checkUserAndDailyStatus(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Fetch Country Leaderboard
+  // Fetch Leaderboard
   const fetchLeaderboard = async () => {
     setLoadingLeaderboard(true);
 
@@ -126,11 +149,13 @@ export default function App() {
     setIsLeaderboardOpen(true);
   };
 
-  // Save game results
+  // Save game results & lock for today
   useEffect(() => {
     if (gameState === 'ended' && user) {
       const saveStats = async () => {
         try {
+          const today = getTodayDateString();
+
           const { data: currentStats } = await supabase
             .from('stats')
             .select('high_score, best_streak, total_games')
@@ -138,18 +163,21 @@ export default function App() {
             .maybeSingle();
 
           const newHighScore = Math.max(currentStats?.high_score || 0, score);
-          const newBestStreak = Math.max(currentStats?.best_streak || 0, streak + 1);
+          const newStreak = streak + 1;
+          setStreak(newStreak);
 
           await supabase.from('stats').upsert({
             user_id: user.id,
             email: user.email,
             high_score: newHighScore,
-            best_streak: newBestStreak,
+            best_streak: newStreak,
             total_games: (currentStats?.total_games || 0) + 1,
             country_code: userCountry,
+            last_played_date: today,
             updated_at: new Date().toISOString()
           }, { onConflict: 'user_id' });
 
+          console.log('Score & Daily Status successfully recorded!');
         } catch (err) {
           console.error('Error saving score:', err);
         }
@@ -183,7 +211,6 @@ export default function App() {
     }
   };
 
-  // Helper for country display names & flags
   const getCountryDisplay = (code: string) => {
     const countries: Record<string, string> = {
       CZ: '🇨🇿 Czechia',
@@ -261,8 +288,38 @@ export default function App() {
           </div>
         </header>
 
-        {/* Main Game Screen */}
-        {gameState !== 'ended' ? (
+        {/* State: Already Played Today */}
+        {gameState === 'already_played' ? (
+          <main className="flex-1 flex flex-col justify-center items-center text-center gap-6 my-8 max-w-md mx-auto w-full">
+            <div className="w-20 h-20 bg-amber-950/60 border border-amber-600/50 rounded-full flex items-center justify-center shadow-2xl">
+              <CalendarCheck2 className="w-10 h-10 text-amber-400" />
+            </div>
+
+            <div>
+              <h2 className="text-3xl lg:text-4xl font-black">Played Today!</h2>
+              <p className="text-slate-400 mt-2 text-sm lg:text-base leading-relaxed">
+                You have already completed today's challenge. Come back tomorrow for a new set of prices!
+              </p>
+            </div>
+
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 w-full flex justify-around shadow-xl">
+              <div>
+                <div className="text-xs text-slate-400 font-medium uppercase tracking-wider">Current Streak</div>
+                <div className="text-2xl lg:text-3xl font-black text-amber-400 flex items-center justify-center gap-1 mt-1">
+                  <Flame className="w-6 h-6 fill-amber-400" /> {streak}
+                </div>
+              </div>
+            </div>
+
+            <button 
+              onClick={openLeaderboard}
+              className="w-full bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-700 flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+            >
+              <Globe className="w-5 h-5 text-amber-400" /> View Country Leaderboard
+            </button>
+          </main>
+        ) : gameState !== 'ended' ? (
+          /* Main Game Screen */
           <main className="flex-1 flex flex-col justify-center gap-6 my-6 lg:my-10">
             <div className="text-center text-xs lg:text-sm text-slate-400 font-semibold tracking-wider">
               ROUND {currentRound + 1} OF {DAILY_QUESTIONS.length}
@@ -332,7 +389,7 @@ export default function App() {
             )}
           </main>
         ) : (
-          /* Game Over */
+          /* Game Over Screen */
           <main className="flex-1 flex flex-col justify-center items-center text-center gap-6 my-6 max-w-md mx-auto w-full">
             <div className="w-20 h-20 bg-emerald-950 border border-emerald-700 rounded-full flex items-center justify-center shadow-2xl">
               <Trophy className="w-10 h-10 text-emerald-400" />
@@ -347,7 +404,7 @@ export default function App() {
               <div>
                 <div className="text-xs text-slate-400 font-medium uppercase tracking-wider">Streak</div>
                 <div className="text-2xl lg:text-3xl font-black text-amber-400 flex items-center justify-center gap-1 mt-1">
-                  <Flame className="w-6 h-6 fill-amber-400" /> {streak + 1}
+                  <Flame className="w-6 h-6 fill-amber-400" /> {streak}
                 </div>
               </div>
               <div className="border-r border-slate-800"></div>
@@ -357,9 +414,13 @@ export default function App() {
               </div>
             </div>
 
-            {!user && (
+            {!user ? (
               <p className="text-xs text-amber-400 bg-amber-950/40 p-3 rounded-xl border border-amber-800/40">
                 ⚠️ Please sign in to record your score for your country!
+              </p>
+            ) : (
+              <p className="text-xs text-emerald-400 bg-emerald-950/40 p-3 rounded-xl border border-emerald-800/40">
+                ✅ Score saved! See you tomorrow for new questions.
               </p>
             )}
 
