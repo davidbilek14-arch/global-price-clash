@@ -56,16 +56,16 @@ export default function App() {
   const [gameState, setGameState] = useState('playing');
   const [lastAnswerCorrect, setLastAnswerCorrect] = useState<boolean | null>(null);
   const [streak, setStreak] = useState(3);
-  const [userCountry, setUserCountry] = useState('CZ'); // Výchozí země
+  const [userCountry, setUserCountry] = useState('US'); // Default country code
 
-  // Stav pro uživatele a modální okna
+  // User and modal states
   const [user, setUser] = useState<any>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [countryLeaders, setCountryLeaders] = useState<CountryStats[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
-  // Auto-detekce země uživatele podle IP
+  // Auto-detect user country via IP
   useEffect(() => {
     fetch('https://ipapi.co/json/')
       .then(res => res.json())
@@ -74,7 +74,7 @@ export default function App() {
           setUserCountry(data.country_code);
         }
       })
-      .catch(() => console.log('Detekce IP selhala, používám CZ'));
+      .catch(() => console.log('IP detection failed, defaulting to US'));
   }, []);
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Načtení Žebříčku Zemí
+  // Fetch Country Leaderboard
   const fetchLeaderboard = async () => {
     setLoadingLeaderboard(true);
 
@@ -101,7 +101,7 @@ export default function App() {
       const countryMap: Record<string, { total_score: number; player_count: number }> = {};
 
       allStats.forEach((item) => {
-        const code = item.country_code || 'CZ';
+        const code = item.country_code || 'US';
         if (!countryMap[code]) {
           countryMap[code] = { total_score: 0, player_count: 0 };
         }
@@ -126,7 +126,7 @@ export default function App() {
     setIsLeaderboardOpen(true);
   };
 
-  // Uložení výsledku po dokončení hry
+  // Save game results
   useEffect(() => {
     if (gameState === 'ended' && user) {
       const saveStats = async () => {
@@ -146,12 +146,12 @@ export default function App() {
             high_score: newHighScore,
             best_streak: newBestStreak,
             total_games: (currentStats?.total_games || 0) + 1,
-            country_code: userCountry, // Uloží zjištěnou zemi (např. CZ, SK, US)
+            country_code: userCountry,
             updated_at: new Date().toISOString()
           }, { onConflict: 'user_id' });
 
         } catch (err) {
-          console.error('Chyba při zápisu:', err);
+          console.error('Error saving score:', err);
         }
       };
 
@@ -183,16 +183,17 @@ export default function App() {
     }
   };
 
-  // Pomocná funkce pro zobrazení názvu/vlajky země podle kódů
+  // Helper for country display names & flags
   const getCountryDisplay = (code: string) => {
     const countries: Record<string, string> = {
-      CZ: '🇨🇿 Česko',
-      SK: '🇸🇰 Slovensko',
-      US: '🇺🇸 USA',
-      DE: '🇩🇪 Německo',
-      GB: '🇬🇧 Velká Británie',
-      PL: '🇵🇱 Polsko',
-      AT: '🇦🇹 Rakousko',
+      CZ: '🇨🇿 Czechia',
+      SK: '🇸🇰 Slovakia',
+      US: '🇺🇸 United States',
+      DE: '🇩🇪 Germany',
+      GB: '🇬🇧 United Kingdom',
+      PL: '🇵🇱 Poland',
+      AT: '🇦🇹 Austria',
+      FR: '🇫🇷 France',
     };
     return countries[code] || `🌐 ${code}`;
   };
@@ -218,7 +219,7 @@ export default function App() {
               className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 hover:border-amber-500/50 text-amber-400 text-xs lg:text-sm font-bold px-3 py-2 rounded-lg transition cursor-pointer"
             >
               <Globe className="w-4 h-4" />
-              <span className="hidden sm:inline">Žebříček Zemí</span>
+              <span className="hidden sm:inline">Country Leaderboard</span>
             </button>
 
             <select 
@@ -243,7 +244,7 @@ export default function App() {
                 </span>
                 <button 
                   onClick={() => supabase.auth.signOut()} 
-                  title="Odhlásit se"
+                  title="Sign out"
                   className="p-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-400 hover:text-rose-400 transition cursor-pointer"
                 >
                   <LogOut className="w-4 h-4" />
@@ -254,7 +255,7 @@ export default function App() {
                 onClick={() => setIsAuthOpen(true)}
                 className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs lg:text-sm font-bold px-3 py-2 rounded-lg transition cursor-pointer"
               >
-                Přihlásit se
+                Sign In
               </button>
             )}
           </div>
@@ -358,7 +359,7 @@ export default function App() {
 
             {!user && (
               <p className="text-xs text-amber-400 bg-amber-950/40 p-3 rounded-xl border border-amber-800/40">
-                ⚠️ Pro započítání skóre pro vaši zemi se musíte přihlásit!
+                ⚠️ Please sign in to record your score for your country!
               </p>
             )}
 
@@ -377,7 +378,7 @@ export default function App() {
         </footer>
       </div>
 
-      {/* Modal - Žebříček Zemí */}
+      {/* Modal - Country Leaderboard */}
       {isLeaderboardOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
@@ -390,13 +391,13 @@ export default function App() {
 
             <div className="flex items-center justify-center gap-2 mb-6">
               <Globe className="w-7 h-7 text-amber-400" />
-              <h2 className="text-2xl font-black text-amber-400">ŽEBŘÍČEK ZEMÍ</h2>
+              <h2 className="text-2xl font-black text-amber-400">COUNTRY LEADERBOARD</h2>
             </div>
 
             {loadingLeaderboard ? (
-              <div className="text-center py-8 text-slate-400">Načítám pořadí zemí...</div>
+              <div className="text-center py-8 text-slate-400">Loading rankings...</div>
             ) : countryLeaders.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">Zatím chybí data podle zemí.</div>
+              <div className="text-center py-8 text-slate-400">No country data recorded yet.</div>
             ) : (
               <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                 {countryLeaders.map((country, index) => (
@@ -415,8 +416,8 @@ export default function App() {
                       <span className="font-semibold">{getCountryDisplay(country.country_code)}</span>
                     </div>
                     <div className="text-right">
-                      <div className="font-black text-base text-amber-400">{country.total_score} b.</div>
-                      <div className="text-xs text-slate-400">{country.player_count} hráčů</div>
+                      <div className="font-black text-base text-amber-400">{country.total_score} pts</div>
+                      <div className="text-xs text-slate-400">{country.player_count} {country.player_count === 1 ? 'player' : 'players'}</div>
                     </div>
                   </div>
                 ))}
@@ -426,7 +427,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Přihlašovací Modal */}
+      {/* Auth Modal */}
       <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
     </div>
   );
