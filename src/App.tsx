@@ -66,7 +66,6 @@ export default function App() {
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   
-  // Separate stats for Daily and Endless in profile
   const [dailyStats, setDailyStats] = useState<any>(null);
   const [endlessStats, setEndlessStats] = useState<any>(null);
 
@@ -77,7 +76,7 @@ export default function App() {
 
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
-  // Fetch questions from Supabase table based on gameMode with strict localStorage memory tracking for Endless
+  // Fetch and uniquely randomize questions for Endless & Daily
   useEffect(() => {
     const fetchQuestions = async () => {
       const tableName = gameMode === 'endless' ? 'questions_endless' : 'questions';
@@ -94,21 +93,21 @@ export default function App() {
         if (gameMode === 'endless') {
           const videneIdCka: number[] = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
           
-          // Filter out already seen cards
           let nevidene = formatted.filter((karta: any) => !videneIdCka.includes(karta.id));
           
-          // If all cards have been seen in this session, reset memory
+          // If all pairs have been played in this session, reset memory safely
           if (nevidene.length === 0) {
             localStorage.removeItem('hrac_videne_karty');
             nevidene = formatted;
           }
 
-          // Shuffle the unseen pool
+          // Randomize order uniquely for this session
           setQuestions([...nevidene].sort(() => Math.random() - 0.5));
         } else {
           setQuestions([...formatted].sort(() => Math.random() - 0.5));
         }
       }
+      setCurrentRound(0);
     };
     fetchQuestions();
   }, [gameMode]);
@@ -130,7 +129,7 @@ export default function App() {
     const checkUserAndPlayStatus = async (currentUser: any) => {
       setUser(currentUser);
       const today = getTodayDateString();
-      const storageKey = `valuer_played_${gameMode}_${today}`;
+      const storageKey = `valuer_played_daily_${today}`;
 
       if (gameMode === 'daily' && localStorage.getItem(storageKey) === 'true') {
         setGameState('already_played');
@@ -139,7 +138,6 @@ export default function App() {
       }
 
       if (currentUser) {
-        // Fetch Daily stats
         const { data: dStats } = await supabase
           .from('stats')
           .select('*')
@@ -147,7 +145,6 @@ export default function App() {
           .maybeSingle();
         if (dStats) setDailyStats(dStats);
 
-        // Fetch Endless stats
         const { data: eStats } = await supabase
           .from('stats_endless')
           .select('*')
@@ -155,7 +152,6 @@ export default function App() {
           .maybeSingle();
         if (eStats) setEndlessStats(eStats);
 
-        // Check if already played today for daily mode via DB
         if (gameMode === 'daily') {
           const { data: currentModeStats } = await supabase
             .from('stats')
@@ -309,11 +305,13 @@ export default function App() {
   };
 
   const handleGuess = (isHigher: boolean) => {
-    const q = questions[currentRound % questions.length];
+    const q = questions[currentRound];
+    if (!q) return;
+
     const isCorrect = isHigher ? q.itemB.priceUSD >= q.itemA.priceUSD : q.itemB.priceUSD <= q.itemA.priceUSD;
 
-    // Save seen card to localStorage in endless mode immediately
-    if (gameMode === 'endless' && q && q.id) {
+    // Save exact row/pair ID to localStorage in endless mode so it won't repeat
+    if (gameMode === 'endless' && q.id) {
       const videneIdCka: number[] = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
       if (!videneIdCka.includes(q.id)) {
         videneIdCka.push(q.id);
@@ -343,11 +341,9 @@ export default function App() {
         setGameState('ended');
       }
     } else {
-      // In endless mode, advance round. If we exceed current question array length, 
-      // fetch/reshuffle unseen items from localStorage pool seamlessly.
       const nextIdx = currentRound + 1;
       if (nextIdx >= questions.length) {
-        // Reload fresh unseen questions pool
+        // Fetch remaining unseen pairs, or refresh nicely when all database rows have been played
         const fetchMoreEndless = async () => {
           const { data, error } = await supabase.from('questions_endless').select('*');
           if (!error && data && data.length > 0) {
@@ -400,7 +396,7 @@ export default function App() {
     return countries[code] || `🌐 ${code}`;
   };
 
-  const q = questions[currentRound % questions.length];
+  const q = questions[currentRound] || questions[0];
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 lg:p-8 relative overflow-hidden font-sans">
@@ -498,7 +494,6 @@ export default function App() {
               </p>
             </div>
 
-            {/* Buy Me a Coffee Callout */}
             <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 border border-amber-500/40 rounded-2xl p-4 w-full text-left flex flex-col gap-2.5 shadow-lg">
               <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
                 <Sparkles className="w-4 h-4" />
@@ -629,7 +624,6 @@ export default function App() {
               </p>
             )}
 
-            {/* Buy Me a Coffee Callout with Topic Request */}
             <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 border border-amber-500/40 rounded-2xl p-4 w-full text-left flex flex-col gap-2.5 shadow-lg">
               <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
                 <Sparkles className="w-4 h-4" />
@@ -696,7 +690,6 @@ export default function App() {
             </div>
 
             <div className="space-y-4">
-              {/* Daily Mode Stats */}
               <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
@@ -713,7 +706,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Endless Mode Stats */}
               <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
@@ -767,7 +759,7 @@ export default function App() {
 
               <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
                 <p className="font-bold text-amber-400 mb-1">📅 Daily vs Endless</p>
-                <p className="text-xs text-slate-400"><b>Daily</b> gives you 5 curated rounds per day. <b>Endless</b> keeps going using our 250+ item database until you make a mistake!</p>
+                <p className="text-xs text-slate-400"><b>Daily</b> gives you 5 curated rounds per day. <b>Endless</b> keeps going using our database until you make a mistake!</p>
               </div>
 
               <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
