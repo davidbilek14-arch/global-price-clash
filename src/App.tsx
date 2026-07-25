@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap, Sparkles, HelpCircle, User, BarChart2, Percent } from 'lucide-react';
+import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap, Sparkles, HelpCircle, User, Percent } from 'lucide-react';
 import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
@@ -77,7 +77,7 @@ export default function App() {
 
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
-  // Fetch questions from Supabase table 'questions' if available
+  // Fetch questions from Supabase table 'questions'
   useEffect(() => {
     const fetchQuestions = async () => {
       const { data, error } = await supabase.from('questions').select('*');
@@ -266,7 +266,6 @@ export default function App() {
             }
 
             if (!error) {
-              // Refresh user stats state
               if (gameMode === 'daily') {
                 const { data } = await supabase.from('stats').select('*').eq('user_id', user.id).maybeSingle();
                 if (data) setDailyStats(data);
