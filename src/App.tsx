@@ -519,7 +519,7 @@ export default function App() {
                 Buy a coffee ☕, write your favorite topic in the note (e.g., technology, fast food, cars), and I will include it in the game with your name!
               </p>
               <a
-                href="https://buymeacoffee.com/TVOJE_JMENO"
+                href="https://buymeacoffee.com/davidbilek"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-center"
