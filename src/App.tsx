@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2 } from 'lucide-react';
+import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap } from 'lucide-react';
 import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
@@ -10,7 +10,8 @@ const EXCHANGE_RATES = {
   GBP: { rate: 0.79, symbol: '£', name: 'GBP (£)' },
 };
 
-const DAILY_QUESTIONS = [
+// Náhradní pool otázek (zde budeme později tahat z DB)
+const ALL_QUESTIONS = [
   {
     id: 1,
     itemA: { name: 'Starbucks Caffe Latte (Large)', location: '🇨🇭 Zurich, Switzerland', priceUSD: 8.50 },
@@ -50,6 +51,7 @@ interface CountryStats {
 }
 
 export default function App() {
+  const [gameMode, setGameMode] = useState<'daily' | 'endless'>('daily');
   const [currency, setCurrency] = useState('USD');
   const [currentRound, setCurrentRound] = useState(0);
   const [score, setScore] = useState(0);
@@ -60,12 +62,17 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
+  const [leaderboardType, setLeaderboardType] = useState<'daily' | 'endless'>('daily');
   const [countryLeaders, setCountryLeaders] = useState<CountryStats[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+  const [shareNotification, setShareNotification] = useState(false);
+
+  // Pro endless mode si držíme náhodně vygenerované/zamíchané otázky
+  const [endlessQuestions, setEndlessQuestions] = useState(ALL_QUESTIONS);
 
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
-  // Auto-detect country via ipwho.is (CORS-friendly)
+  // Auto-detect country via ipwho.is
   useEffect(() => {
     fetch('https://ipwho.is/')
       .then(res => res.json())
@@ -77,12 +84,12 @@ export default function App() {
       .catch(() => console.log('IP detection failed, defaulting to US'));
   }, []);
 
-  // Check Auth & Daily Played Status
+  // Check Auth & Daily Played Status (pouze pro Daily mód)
   useEffect(() => {
     const checkUserAndDailyStatus = async (currentUser: any) => {
       setUser(currentUser);
 
-      if (currentUser) {
+      if (currentUser && gameMode === 'daily') {
         const { data: stats, error } = await supabase
           .from('stats')
           .select('last_played_date')
@@ -107,18 +114,35 @@ export default function App() {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [gameMode]);
 
-  // Fetch Leaderboard
-  const fetchLeaderboard = async () => {
+  // Přepínání herních módů
+  const switchMode = (mode: 'daily' | 'endless') => {
+    setGameMode(mode);
+    setScore(0);
+    setCurrentRound(0);
+    setGameState('playing');
+    if (mode === 'endless') {
+      // Zamícháme otázky pro endless
+      setEndlessQuestions([...ALL_QUESTIONS].sort(() => Math.random() - 0.5));
+    }
+  };
+
+  // Fetch Leaderboard (podle typu žebříčku - daily vs endless)
+  const fetchLeaderboard = async (type: 'daily' | 'endless' = 'daily') => {
     setLoadingLeaderboard(true);
+    setLeaderboardType(type);
+
+    const tableName = type === 'daily' ? 'stats' : 'stats_endless'; // Předpokládá vytvoření druhé tabulky, případně lze upravit
 
     const { data: allStats, error } = await supabase
-      .from('stats')
+      .from(tableName)
       .select('country_code, high_score');
 
     if (error) {
       console.error('Error fetching leaderboard data:', error);
+      // Pokud tabulka stats_endless ještě neexistuje, zobrazíme prázdno namísto pádu
+      setCountryLeaders([]);
       setLoadingLeaderboard(false);
       return;
     }
@@ -147,21 +171,21 @@ export default function App() {
     setLoadingLeaderboard(false);
   };
 
-  const openLeaderboard = () => {
-    fetchLeaderboard();
+  const openLeaderboard = (type: 'daily' | 'endless' = 'daily') => {
+    fetchLeaderboard(type);
     setIsLeaderboardOpen(true);
   };
 
-  // Save game results securely via safe insert/update logic
+  // Ukládání výsledků po skončení hry
   useEffect(() => {
     if (gameState === 'ended' && user) {
       const saveStats = async () => {
         try {
           const today = getTodayDateString();
+          const tableName = gameMode === 'daily' ? 'stats' : 'stats_endless';
 
-          // 1. Zjistíme, jestli už záznam pro uživatele existuje
           const { data: currentStats } = await supabase
-            .from('stats')
+            .from(tableName)
             .select('high_score, total_games')
             .eq('user_id', user.id)
             .maybeSingle();
@@ -171,9 +195,8 @@ export default function App() {
 
           let error;
           if (currentStats) {
-            // Update stávajícího záznamu
             const res = await supabase
-              .from('stats')
+              .from(tableName)
               .update({
                 high_score: newHighScore,
                 total_games: newTotalGames,
@@ -184,9 +207,8 @@ export default function App() {
               .eq('user_id', user.id);
             error = res.error;
           } else {
-            // Insert nového záznamu, pokud ještě neexistoval
             const res = await supabase
-              .from('stats')
+              .from(tableName)
               .insert({
                 user_id: user.id,
                 email: user.email,
@@ -199,11 +221,7 @@ export default function App() {
             error = res.error;
           }
 
-          if (error) {
-            console.error('Supabase save error:', error);
-          } else {
-            console.log('Score & Daily Status successfully recorded!');
-          }
+          if (error) console.error('Supabase save error:', error);
         } catch (err) {
           console.error('Error saving score:', err);
         }
@@ -211,7 +229,7 @@ export default function App() {
 
       saveStats();
     }
-  }, [gameState, user, score, userCountry]);
+  }, [gameState, user, score, userCountry, gameMode]);
 
   const formatPrice = (priceUSD: number) => {
     const { rate, symbol } = EXCHANGE_RATES[currency as keyof typeof EXCHANGE_RATES];
@@ -219,22 +237,49 @@ export default function App() {
     return currency === 'CZK' ? `${converted} ${symbol}` : `${symbol}${converted}`;
   };
 
+  const currentQuestionsList = gameMode === 'daily' ? ALL_QUESTIONS : endlessQuestions;
+
   const handleGuess = (isHigher: boolean) => {
-    const q = DAILY_QUESTIONS[currentRound];
+    const q = currentQuestionsList[currentRound % currentQuestionsList.length];
     const isCorrect = isHigher ? q.itemB.priceUSD >= q.itemA.priceUSD : q.itemB.priceUSD <= q.itemA.priceUSD;
 
     setLastAnswerCorrect(isCorrect);
-    if (isCorrect) setScore(score + 1);
-    setGameState('revealed');
+    if (isCorrect) {
+      setScore(score + 1);
+      setGameState('revealed');
+    } else {
+      // V endless módu špatná odpověď hned ukončuje hru! V daily módu pokračujeme do konce otázek.
+      if (gameMode === 'endless') {
+        setGameState('ended');
+      } else {
+        setGameState('revealed');
+      }
+    }
   };
 
   const nextQuestion = () => {
-    if (currentRound + 1 < DAILY_QUESTIONS.length) {
+    if (gameMode === 'daily') {
+      if (currentRound + 1 < ALL_QUESTIONS.length) {
+        setCurrentRound(currentRound + 1);
+        setGameState('playing');
+      } else {
+        setGameState('ended');
+      }
+    } else {
+      // Endless jede dál na další otázku
       setCurrentRound(currentRound + 1);
       setGameState('playing');
-    } else {
-      setGameState('ended');
     }
+  };
+
+  const handleShare = () => {
+    const text = gameMode === 'daily' 
+      ? `Valuer Daily - Skóre: ${score}/${ALL_QUESTIONS.length} 🌍` 
+      : `Valuer Endless - Dosáhl jsem skóre ${score} bodů! 🚀`;
+      
+    navigator.clipboard.writeText(text);
+    setShareNotification(true);
+    setTimeout(() => setShareNotification(false), 2500);
   };
 
   const getCountryDisplay = (code: string) => {
@@ -251,7 +296,7 @@ export default function App() {
     return countries[code] || `🌐 ${code}`;
   };
 
-  const q = DAILY_QUESTIONS[currentRound];
+  const q = currentQuestionsList[currentRound % currentQuestionsList.length];
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 lg:p-8 relative overflow-hidden font-sans">
@@ -260,19 +305,43 @@ export default function App() {
       <div className="max-w-5xl mx-auto w-full flex-1 flex flex-col justify-between z-10">
         
         {/* Header */}
-        <header className="flex justify-between items-center border-b border-slate-800/80 pb-4">
+        <header className="flex flex-col md:flex-row justify-between items-center border-b border-slate-800/80 pb-4 gap-4">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl lg:text-4xl font-black tracking-wider text-emerald-400">VALUER</h1>
-            <span className="text-xs lg:text-sm bg-emerald-950/80 text-emerald-400 px-3 py-1 rounded-full font-bold border border-emerald-800/60">DAILY</span>
+            <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800">
+              <button 
+                onClick={() => switchMode('daily')}
+                className={`text-xs px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${gameMode === 'daily' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                Daily
+              </button>
+              <button 
+                onClick={() => switchMode('endless')}
+                className={`text-xs px-3 py-1.5 rounded-lg font-bold transition cursor-pointer flex items-center gap-1 ${gameMode === 'endless' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Zap className="w-3 h-3" /> Endless
+              </button>
+            </div>
           </div>
           
-          <div className="flex items-center gap-2 lg:gap-3">
+          <div className="flex items-center flex-wrap justify-center gap-2 lg:gap-3">
+            {/* Tlačítko Buy me a coffee - odkaz zatím prázdný, doplň až budeš mít */}
+            <a
+              href="https://buymeacoffee.com/TVOJE_JMENO" 
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-400 text-xs lg:text-sm font-bold px-3 py-2 rounded-lg transition"
+            >
+              <Coffee className="w-4 h-4" />
+              <span className="hidden sm:inline">Buy me a coffee</span>
+            </a>
+
             <button
-              onClick={openLeaderboard}
+              onClick={() => openLeaderboard(gameMode)}
               className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 hover:border-amber-500/50 text-amber-400 text-xs lg:text-sm font-bold px-3 py-2 rounded-lg transition cursor-pointer"
             >
               <Globe className="w-4 h-4" />
-              <span className="hidden sm:inline">Country Leaderboard</span>
+              <span>Leaderboard</span>
             </button>
 
             <select 
@@ -309,8 +378,8 @@ export default function App() {
           </div>
         </header>
 
-        {/* State: Already Played Today */}
-        {gameState === 'already_played' ? (
+        {/* State: Already Played Today (jen pro Daily) */}
+        {gameMode === 'daily' && gameState === 'already_played' ? (
           <main className="flex-1 flex flex-col justify-center items-center text-center gap-6 my-8 max-w-md mx-auto w-full">
             <div className="w-20 h-20 bg-amber-950/60 border border-amber-600/50 rounded-full flex items-center justify-center shadow-2xl">
               <CalendarCheck2 className="w-10 h-10 text-amber-400" />
@@ -319,22 +388,31 @@ export default function App() {
             <div>
               <h2 className="text-3xl lg:text-4xl font-black">Played Today!</h2>
               <p className="text-slate-400 mt-2 text-sm lg:text-base leading-relaxed">
-                You have already completed today's challenge. Come back tomorrow for a new set of prices!
+                You have already completed today's challenge. Try out the <b>Endless Mode</b> or come back tomorrow!
               </p>
             </div>
 
-            <button 
-              onClick={openLeaderboard}
-              className="w-full bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-700 flex items-center justify-center gap-2 shadow-xl cursor-pointer"
-            >
-              <Globe className="w-5 h-5 text-amber-400" /> View Country Leaderboard
-            </button>
+            <div className="flex flex-col gap-3 w-full">
+              <button 
+                onClick={() => switchMode('endless')}
+                className="w-full bg-amber-600 hover:bg-amber-500 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+              >
+                <Zap className="w-5 h-5" /> Play Endless Mode
+              </button>
+              <button 
+                onClick={() => openLeaderboard('daily')}
+                className="w-full bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-700 flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+              >
+                <Globe className="w-5 h-5 text-amber-400" /> View Daily Leaderboard
+              </button>
+            </div>
           </main>
         ) : gameState !== 'ended' ? (
           /* Main Game Screen */
           <main className="flex-1 flex flex-col justify-center gap-6 my-6 lg:my-10">
-            <div className="text-center text-xs lg:text-sm text-slate-400 font-semibold tracking-wider">
-              ROUND {currentRound + 1} OF {DAILY_QUESTIONS.length}
+            <div className="flex justify-between items-center max-w-xl mx-w-xl mx-auto w-full text-xs lg:text-sm text-slate-400 font-semibold tracking-wider">
+              <span>{gameMode === 'daily' ? `ROUND ${currentRound + 1} OF ${ALL_QUESTIONS.length}` : `ENDLESS MODE`}</span>
+              <span className="text-emerald-400 font-bold">SCORE: {score}</span>
             </div>
 
             <div className="relative grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-12 items-stretch">
@@ -408,33 +486,38 @@ export default function App() {
             </div>
 
             <div>
-              <h2 className="text-3xl lg:text-4xl font-black">Daily Complete!</h2>
-              <p className="text-slate-400 mt-2 text-sm lg:text-base">You got <span className="text-emerald-400 font-bold">{score}</span> out of {DAILY_QUESTIONS.length} correct</p>
-            </div>
-
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 w-full flex justify-center shadow-xl">
-              <div>
-                <div className="text-xs text-slate-400 font-medium uppercase tracking-wider">Accuracy</div>
-                <div className="text-2xl lg:text-3xl font-black text-emerald-400 mt-1">{(score / DAILY_QUESTIONS.length) * 100}%</div>
-              </div>
+              <h2 className="text-3xl lg:text-4xl font-black">{gameMode === 'daily' ? 'Daily Complete!' : 'Game Over!'}</h2>
+              <p className="text-slate-400 mt-2 text-sm lg:text-base">
+                {gameMode === 'daily' 
+                  ? `You got ${score} out of ${ALL_QUESTIONS.length} correct` 
+                  : `You achieved a final score of ${score} points!`}
+              </p>
             </div>
 
             {!user ? (
               <p className="text-xs text-amber-400 bg-amber-950/40 p-3 rounded-xl border border-amber-800/40">
-                ⚠️ Please sign in to record your score for your country!
+                ⚠️ Please sign in to record your score for the country leaderboard!
               </p>
             ) : (
               <p className="text-xs text-emerald-400 bg-emerald-950/40 p-3 rounded-xl border border-emerald-800/40">
-                ✅ Score saved! See you tomorrow for new questions.
+                ✅ Score successfully saved to {gameMode === 'daily' ? 'Daily' : 'Endless'} ranking!
               </p>
             )}
 
-            <button 
-              onClick={() => alert("Copied score to clipboard!")}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base lg:text-lg flex items-center justify-center gap-2 shadow-xl cursor-pointer"
-            >
-              <Share2 className="w-5 h-5" /> Share Results
-            </button>
+            <div className="flex flex-col gap-3 w-full">
+              <button 
+                onClick={handleShare}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base lg:text-lg flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+              >
+                <Share2 className="w-5 h-5" /> {shareNotification ? 'Copied to clipboard! ✅' : 'Share Results'}
+              </button>
+              <button 
+                onClick={() => switchMode(gameMode)}
+                className="w-full bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-700 cursor-pointer shadow-lg"
+              >
+                Play Again 🔄
+              </button>
+            </div>
           </main>
         )}
 
@@ -450,20 +533,38 @@ export default function App() {
           <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
             <button 
               onClick={() => setIsLeaderboardOpen(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg transition"
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center justify-center gap-2 mb-6">
+            <div className="flex items-center justify-center gap-2 mb-4">
               <Globe className="w-7 h-7 text-amber-400" />
-              <h2 className="text-2xl font-black text-amber-400">COUNTRY LEADERBOARD</h2>
+              <h2 className="text-xl font-black text-amber-400">COUNTRY LEADERBOARD</h2>
+            </div>
+
+            {/* Přepínání žebříčků v modalu */}
+            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 mb-6">
+              <button 
+                onClick={() => fetchLeaderboard('daily')}
+                className={`flex-1 text-xs py-2 rounded-lg font-bold transition cursor-pointer ${leaderboardType === 'daily' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                Daily Mode
+              </button>
+              <button 
+                onClick={() => fetchLeaderboard('endless')}
+                className={`flex-1 text-xs py-2 rounded-lg font-bold transition cursor-pointer ${leaderboardType === 'endless' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                Endless Mode
+              </button>
             </div>
 
             {loadingLeaderboard ? (
               <div className="text-center py-8 text-slate-400">Loading rankings...</div>
             ) : countryLeaders.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">No country data recorded yet.</div>
+              <div className="text-center py-8 text-slate-400 text-sm">
+                No data recorded for this mode yet (or table missing).
+              </div>
             ) : (
               <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                 {countryLeaders.map((country, index) => (
