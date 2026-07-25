@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap, Sparkles } from 'lucide-react';
+import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap, Sparkles, HelpCircle } from 'lucide-react';
 import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
@@ -62,6 +62,7 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [leaderboardType, setLeaderboardType] = useState<'daily' | 'endless'>('daily');
   const [countryLeaders, setCountryLeaders] = useState<CountryStats[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
@@ -90,7 +91,7 @@ export default function App() {
       const today = getTodayDateString();
       const storageKey = `valuer_played_${gameMode}_${today}`;
 
-      // 1. Check localStorage first (works for both logged-in and guest users immediately)
+      // 1. Check localStorage first
       if (localStorage.getItem(storageKey) === 'true') {
         setGameState('already_played');
         return;
@@ -106,7 +107,7 @@ export default function App() {
           .maybeSingle();
 
         if (!error && stats && stats.last_played_date === today) {
-          localStorage.setItem(storageKey, 'true'); // sync localStorage
+          localStorage.setItem(storageKey, 'true');
           setGameState('already_played');
           return;
         }
@@ -185,7 +186,7 @@ export default function App() {
     if (gameState === 'ended') {
       const today = getTodayDateString();
       const storageKey = `valuer_played_${gameMode}_${today}`;
-      localStorage.setItem(storageKey, 'true'); // Lock it down in localStorage immediately for guests & users
+      localStorage.setItem(storageKey, 'true');
 
       if (user) {
         const saveStats = async () => {
@@ -333,6 +334,14 @@ export default function App() {
           
           <div className="flex items-center flex-wrap justify-center gap-2 lg:gap-3">
             <button
+              onClick={() => setIsHelpOpen(true)}
+              className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 text-xs lg:text-sm font-bold px-3 py-2 rounded-lg transition cursor-pointer"
+            >
+              <HelpCircle className="w-4 h-4 text-emerald-400" />
+              <span>How to play</span>
+            </button>
+
+            <button
               onClick={() => openLeaderboard(gameMode)}
               className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 hover:border-amber-500/50 text-amber-400 text-xs lg:text-sm font-bold px-3 py-2 rounded-lg transition cursor-pointer"
             >
@@ -384,20 +393,20 @@ export default function App() {
             <div>
               <h2 className="text-3xl lg:text-4xl font-black">Played Today!</h2>
               <p className="text-slate-400 mt-2 text-sm lg:text-base leading-relaxed">
-                You have already completed today's <b>{gameMode === 'daily' ? 'Daily' : 'Endless'}</b> challenge. Come back tomorrow for a new attempt!
+                You have already completed today's <b>{gameMode === 'daily' ? 'Daily' : 'Endless'}</b> challenge. Come back tomorrow to play both modes again!
               </p>
             </div>
 
             <div className="flex flex-col gap-3 w-full">
               <button 
                 onClick={() => switchMode(gameMode === 'daily' ? 'endless' : 'daily')}
-                className="w-full bg-amber-600 hover:bg-amber-500 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+                className="w-full bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-700 flex items-center justify-center gap-2 shadow-xl cursor-pointer"
               >
-                <Zap className="w-5 h-5" /> Switch to {gameMode === 'daily' ? 'Endless' : 'Daily'} Mode
+                <Zap className="w-5 h-5 text-amber-400" /> Check {gameMode === 'daily' ? 'Endless' : 'Daily'} Mode status
               </button>
               <button 
                 onClick={() => openLeaderboard(gameMode)}
-                className="w-full bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-700 flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+                className="w-full bg-slate-900 hover:bg-slate-800 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-800 flex items-center justify-center gap-2 shadow-xl cursor-pointer"
               >
                 <Globe className="w-5 h-5 text-amber-400" /> View Leaderboard
               </button>
@@ -535,6 +544,56 @@ export default function App() {
           Valuer © 2026 • Everyday Global Price Clash
         </footer>
       </div>
+
+      {/* Modal - How to Play */}
+      {isHelpOpen && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
+            <button 
+              onClick={() => setIsHelpOpen(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-4">
+              <HelpCircle className="w-6 h-6 text-emerald-400" />
+              <h2 className="text-xl font-black text-emerald-400">HOW TO PLAY</h2>
+            </div>
+
+            <div className="space-y-4 text-sm text-slate-300 leading-relaxed">
+              <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+                <h3 className="font-bold text-white mb-1">🌍 The Core Concept</h3>
+                <p className="text-xs text-slate-400">
+                  Compare everyday items, food, technology, or services from different cities around the world and guess whether item B is <b>HIGHER ▲</b> or <b>LOWER ▼</b> in price compared to item A.
+                </p>
+              </div>
+
+              <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+                <h3 className="font-bold text-white mb-1">📅 Daily vs Endless Mode</h3>
+                <ul className="text-xs text-slate-400 space-y-1.5 list-disc pl-4">
+                  <li><b>Daily Mode:</b> Fixed set of rounds refreshed every day. Can be played once daily.</li>
+                  <li><b>Endless Mode:</b> A continuous challenge to test your pricing intuition until you make a mistake. Can also be played once per day.</li>
+                </ul>
+              </div>
+
+              <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+                <h3 className="font-bold text-white mb-1">🏆 Country Leaderboard</h3>
+                <p className="text-xs text-slate-400">
+                  Sign in to record your scores and compete for your country on the global leaderboard!
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setIsHelpOpen(false)}
+              className="mt-6 w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-3 rounded-xl text-sm transition cursor-pointer"
+            >
+              Got it!
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modal - Country Leaderboard */}
       {isLeaderboardOpen && (
