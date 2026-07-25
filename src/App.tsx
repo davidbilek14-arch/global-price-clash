@@ -10,7 +10,7 @@ const EXCHANGE_RATES = {
   GBP: { rate: 0.79, symbol: '£', name: 'GBP (£)' },
 };
 
-// Náhradní pool otázek (zde budeme brzy tahat z databáze)
+// Placeholder question pool (will be fetched from database soon)
 const ALL_QUESTIONS = [
   {
     id: 1,
@@ -266,8 +266,8 @@ export default function App() {
 
   const handleShare = () => {
     const text = gameMode === 'daily' 
-      ? `Valuer Daily - Skóre: ${score}/${ALL_QUESTIONS.length} 🌍` 
-      : `Valuer Endless - Dosáhl jsem skóre ${score} bodů! 🚀`;
+      ? `Valuer Daily - Score: ${score}/${ALL_QUESTIONS.length} 🌍` 
+      : `Valuer Endless - I achieved a score of ${score} points! 🚀`;
       
     navigator.clipboard.writeText(text);
     setShareNotification(true);
@@ -317,16 +317,6 @@ export default function App() {
           </div>
           
           <div className="flex items-center flex-wrap justify-center gap-2 lg:gap-3">
-            <a
-              href="https://buymeacoffee.com/TVOJE_JMENO" 
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-400 text-xs lg:text-sm font-bold px-3 py-2 rounded-lg transition"
-            >
-              <Coffee className="w-4 h-4" />
-              <span className="hidden sm:inline">Buy me a coffee</span>
-            </a>
-
             <button
               onClick={() => openLeaderboard(gameMode)}
               className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 hover:border-amber-500/50 text-amber-400 text-xs lg:text-sm font-bold px-3 py-2 rounded-lg transition cursor-pointer"
@@ -499,10 +489,10 @@ export default function App() {
             <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 border border-amber-500/40 rounded-2xl p-4 w-full text-left flex flex-col gap-2.5 shadow-lg">
               <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
                 <Sparkles className="w-4 h-4" />
-                <span>Navrhni další tematický okruh!</span>
+                <span>Suggest a theme for the next round!</span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Kup kávu ☕, do poznámky připiš svůj oblíbený okruh (např. technologie, fast food, auta) a já ho zařadím do hry i s tvým jménem!
+                Buy a coffee ☕, write your favorite topic in the note (e.g., technology, fast food, cars), and I will include it in the game with your name!
               </p>
               <a
                 href="https://buymeacoffee.com/TVOJE_JMENO"
@@ -510,7 +500,7 @@ export default function App() {
                 rel="noopener noreferrer"
                 className="mt-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-center"
               >
-                <Coffee className="w-4 h-4" /> Podpořit a vybrat téma
+                <Coffee className="w-4 h-4" /> Support & Choose Theme
               </a>
             </div>
 
