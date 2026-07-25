@@ -5,40 +5,31 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'YOUR_SUPABASE_URL';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'YOUR_SUPABASE_ANON_KEY';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-interface Item {
+interface Question {
   id: number;
   title: string;
   price: number;
   image_url?: string;
 }
 
-interface GamePair {
-  itemA: Item;
-  itemB: Item;
-  correctAnswer: 'A' | 'B';
-}
-
 export default function App() {
-  const [allItems, setAllItems] = useState<Item[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Auth & User state
+  // Auth state
   const [user, setUser] = useState<any>(null);
   const [emailInput, setEmailInput] = useState<string>('');
   const [authSent, setAuthSent] = useState<boolean>(false);
 
-  // Game states
-  const [rounds, setRounds] = useState<GamePair[]>([]);
-  const [currentRoundIndex, setCurrentRoundIndex] = useState<number>(0);
+  // Game state
+  const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [score, setScore] = useState<number>(0);
-  
-  // Round interactive states
-  const [selectedChoice, setSelectedChoice] = useState<'A' | 'B' | null>(null);
-  const [isRevealed, setIsRevealed] = useState<boolean>(false);
   const [gameOver, setGameOver] = useState<boolean>(false);
+  const [guessResult, setGuessResult] = useState<boolean | null>(null);
+  const [revealedPrice, setRevealedPrice] = useState<number | null>(null);
 
-  // Leaderboard state
+  // Leaderboard
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
 
   useEffect(() => {
@@ -50,12 +41,12 @@ export default function App() {
 
         const { data, error } = await supabase.from('questions').select('*');
         if (error) throw error;
-        if (!data || data.length < 2) {
-          throw new Error('Not enough items in database for comparison (minimum 2).');
+        if (!data || data.length === 0) {
+          throw new Error('No questions found in the database.');
         }
-        setAllItems(data);
-        
-        initNewGame(data);
+
+        // Zamíchání otázek
+        setQuestions(data.sort(() => Math.random() - 0.5));
         fetchLeaderboard();
       } catch (err: any) {
         setError(err.message || 'Initialization error.');
@@ -88,56 +79,28 @@ export default function App() {
     if (!error) setAuthSent(true);
   }
 
-  function initNewGame(itemsPool: Item[]) {
-    let pool = [...itemsPool];
-    pool.sort(() => Math.random() - 0.5);
+  const currentItem = questions[currentIndex];
+  const nextItem = questions[(currentIndex + 1) % questions.length];
 
-    const generatedPairs: GamePair[] = [];
-    const totalRoundsNeeded = 5;
+  const handleGuess = (higher: boolean) => {
+    if (guessResult !== null) return;
 
-    for (let i = 0; i < totalRoundsNeeded; i++) {
-      const itemA = pool[(i * 2) % pool.length];
-      let itemB = pool[(i * 2 + 1) % pool.length];
+    const isHigher = nextItem.price >= currentItem.price;
+    const correct = higher === isHigher;
 
-      if (itemA.id === itemB.id) {
-        itemB = pool[(i * 2 + 2) % pool.length] || pool[0];
-      }
-
-      const correctAnswer: 'A' | 'B' = itemA.price >= itemB.price ? 'A' : 'B';
-      generatedPairs.push({ itemA, itemB, correctAnswer });
-    }
-
-    setRounds(generatedPairs);
-    setCurrentRoundIndex(0);
-    setScore(0);
-    setSelectedChoice(null);
-    setIsRevealed(false);
-    setGameOver(false);
-  }
-
-  const handleChoice = (choice: 'A' | 'B') => {
-    if (isRevealed || gameOver) return;
-
-    setSelectedChoice(choice);
-    setIsRevealed(true);
-
-    const currentPair = rounds[currentRoundIndex];
-    const isCorrect = choice === currentPair.correctAnswer;
-    const newScore = score + (isCorrect ? 1 : 0);
-
-    if (isCorrect) {
-      setScore(newScore);
-    }
+    setGuessResult(correct);
+    setRevealedPrice(nextItem.price);
 
     setTimeout(() => {
-      if (currentRoundIndex + 1 < rounds.length) {
-        setCurrentRoundIndex((prev) => prev + 1);
-        setSelectedChoice(null);
-        setIsRevealed(false);
+      if (correct) {
+        setScore((prev) => prev + 1);
+        setCurrentIndex((prev) => (prev + 1) % questions.length);
+        setGuessResult(null);
+        setRevealedPrice(null);
       } else {
         setGameOver(true);
         if (user) {
-          saveScore(newScore);
+          saveScore(score + 1);
         }
       }
     }, 2000);
@@ -147,6 +110,15 @@ export default function App() {
     await supabase.from('scores').insert([{ user_id: user.id, score: finalScore }]);
     fetchLeaderboard();
   }
+
+  const restartGame = () => {
+    setQuestions([...questions].sort(() => Math.random() - 0.5));
+    setCurrentIndex(0);
+    setScore(0);
+    setGameOver(false);
+    setGuessResult(null);
+    setRevealedPrice(null);
+  };
 
   if (loading) {
     return (
@@ -177,7 +149,7 @@ export default function App() {
             VALUER
           </h1>
           <span className="text-xs text-slate-400 bg-slate-900 px-3 py-1 rounded-full border border-slate-800">
-            A vs B Challenge
+            Score: <strong className="text-emerald-400">{score}</strong>
           </span>
         </div>
 
@@ -221,115 +193,80 @@ export default function App() {
       <main className="my-auto py-8 flex flex-col items-center w-full">
         {gameOver ? (
           <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 p-8 rounded-3xl text-center space-y-6 shadow-2xl backdrop-blur-md">
-            <h2 className="text-3xl font-black tracking-tight">Game Completed!</h2>
+            <h2 className="text-3xl font-black tracking-tight">Game Over</h2>
             <div className="text-xl text-slate-300">
-              Your Score: <span className="font-black text-emerald-400">{score}</span> / {rounds.length}
+              Final Score: <span className="font-black text-emerald-400">{score}</span>
             </div>
 
             <button
-              onClick={() => initNewGame(allItems)}
+              onClick={restartGame}
               className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-2xl transition shadow-lg shadow-emerald-500/20 active:scale-[0.98]"
             >
               Play Again
             </button>
           </div>
-        ) : rounds.length > 0 && rounds[currentRoundIndex] ? (
-          <div className="w-full max-w-4xl flex flex-col items-center">
-            <div className="flex justify-between w-full mb-6 px-2 text-xs font-bold uppercase tracking-wider text-slate-400">
-              <span>Round {currentRoundIndex + 1} / {rounds.length}</span>
-              <span>Score: <strong className="text-emerald-400">{score}</strong></span>
-            </div>
-
-            <h2 className="text-3xl md:text-4xl font-black tracking-tight mb-8 text-center">
-              Which one costs <span className="text-emerald-400 underline decoration-emerald-500/30 underline-offset-4">more</span>?
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
-              {/* CARD A */}
-              <div
-                onClick={() => handleChoice('A')}
-                className={`relative group cursor-pointer bg-slate-900/90 border-2 rounded-3xl p-6 flex flex-col items-center justify-between min-h-[360px] transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-xl ${
-                  isRevealed
-                    ? rounds[currentRoundIndex].correctAnswer === 'A'
-                      ? 'border-emerald-500 bg-emerald-950/20'
-                      : selectedChoice === 'A'
-                      ? 'border-red-500 bg-red-950/20'
-                      : 'border-slate-800 opacity-40'
-                    : 'border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                {rounds[currentRoundIndex].itemA.image_url && (
-                  <div className="w-full h-48 mb-4 rounded-2xl overflow-hidden bg-slate-800">
-                    <img 
-                      src={rounds[currentRoundIndex].itemA.image_url} 
-                      alt={rounds[currentRoundIndex].itemA.title} 
-                      className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                    />
-                  </div>
-                )}
-                <div className="text-center my-auto px-2">
-                  <h3 className="text-xl font-bold text-slate-100">{rounds[currentRoundIndex].itemA.title}</h3>
+        ) : currentItem && nextItem ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl items-center">
+            
+            {/* LEFT CARD (Current) */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 flex flex-col items-center justify-between min-h-[360px] shadow-xl">
+              {currentItem.image_url && (
+                <div className="w-full h-48 mb-4 rounded-2xl overflow-hidden bg-slate-800">
+                  <img src={currentItem.image_url} alt={currentItem.title} className="w-full h-full object-cover" />
                 </div>
-
-                <div className="mt-4 pt-4 border-t border-slate-800/80 w-full text-center">
-                  {isRevealed ? (
-                    <span className="text-2xl font-black text-emerald-400 animate-fade-in">
-                      {rounds[currentRoundIndex].itemA.price.toLocaleString()} CZK
-                    </span>
-                  ) : (
-                    <span className="text-xs uppercase tracking-widest text-slate-500 font-bold">
-                      Tap to select
-                    </span>
-                  )}
-                </div>
+              )}
+              <div className="text-center my-auto">
+                <h3 className="text-xl font-bold text-slate-100">{currentItem.title}</h3>
+                <p className="text-xs text-slate-400 mt-1">costs</p>
               </div>
-
-              {/* CARD B */}
-              <div
-                onClick={() => handleChoice('B')}
-                className={`relative group cursor-pointer bg-slate-900/90 border-2 rounded-3xl p-6 flex flex-col items-center justify-between min-h-[360px] transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-xl ${
-                  isRevealed
-                    ? rounds[currentRoundIndex].correctAnswer === 'B'
-                      ? 'border-emerald-500 bg-emerald-950/20'
-                      : selectedChoice === 'B'
-                      ? 'border-red-500 bg-red-950/20'
-                      : 'border-slate-800 opacity-40'
-                    : 'border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                {rounds[currentRoundIndex].itemB.image_url && (
-                  <div className="w-full h-48 mb-4 rounded-2xl overflow-hidden bg-slate-800">
-                    <img 
-                      src={rounds[currentRoundIndex].itemB.image_url} 
-                      alt={rounds[currentRoundIndex].itemB.title} 
-                      className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                    />
-                  </div>
-                )}
-                <div className="text-center my-auto px-2">
-                  <h3 className="text-xl font-bold text-slate-100">{rounds[currentRoundIndex].itemB.title}</h3>
-                </div>
-
-                <div className="mt-4 pt-4 border-t border-slate-800/80 w-full text-center">
-                  {isRevealed ? (
-                    <span className="text-2xl font-black text-emerald-400 animate-fade-in">
-                      {rounds[currentRoundIndex].itemB.price.toLocaleString()} CZK
-                    </span>
-                  ) : (
-                    <span className="text-xs uppercase tracking-widest text-slate-500 font-bold">
-                      Tap to select
-                    </span>
-                  )}
-                </div>
+              <div className="mt-4 pt-4 border-t border-slate-800 w-full text-center">
+                <span className="text-2xl font-black text-emerald-400">{currentItem.price.toLocaleString()} CZK</span>
               </div>
             </div>
+
+            {/* RIGHT CARD (Next / Guess) */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 flex flex-col items-center justify-between min-h-[360px] shadow-xl relative">
+              {nextItem.image_url && (
+                <div className="w-full h-48 mb-4 rounded-2xl overflow-hidden bg-slate-800">
+                  <img src={nextItem.image_url} alt={nextItem.title} className="w-full h-full object-cover" />
+                </div>
+              )}
+              <div className="text-center my-auto">
+                <h3 className="text-xl font-bold text-slate-100">{nextItem.title}</h3>
+                <p className="text-xs text-slate-400 mt-1">costs...</p>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-slate-800 w-full text-center">
+                {revealedPrice !== null ? (
+                  <span className={`text-2xl font-black ${guessResult ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {revealedPrice.toLocaleString()} CZK
+                  </span>
+                ) : (
+                  <div className="flex gap-2 justify-center">
+                    <button
+                      onClick={() => handleGuess(true)}
+                      className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition shadow-md active:scale-95"
+                    >
+                      Higher 📈
+                    </button>
+                    <button
+                      onClick={() => handleGuess(false)}
+                      className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition border border-slate-700 active:scale-95"
+                    >
+                      Lower 📉
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
           </div>
         ) : null}
       </main>
 
       {/* FOOTER */}
       <footer className="text-center pt-6 border-t border-slate-800 text-xs text-slate-500">
-        VALUER • Compare items and test your pricing intuition.
+        VALUER • Compare prices and test your knowledge.
       </footer>
     </div>
   );
