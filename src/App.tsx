@@ -23,37 +23,75 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Auth & User state
+  const [user, setUser] = useState<any>(null);
+  const [emailInput, setEmailInput] = useState<string>('');
+  const [authSent, setAuthSent] = useState<boolean>(false);
+
+  // Game states
   const [gameStarted, setGameStarted] = useState<boolean>(false);
+  const [dailyMode, setDailyMode] = useState<boolean>(false);
   const [rounds, setRounds] = useState<GamePair[]>([]);
   const [currentRoundIndex, setCurrentRoundIndex] = useState<number>(0);
   const [score, setScore] = useState<number>(0);
   
+  // Round interactive states
   const [selectedChoice, setSelectedChoice] = useState<'A' | 'B' | null>(null);
   const [isRevealed, setIsRevealed] = useState<boolean>(false);
   const [gameOver, setGameOver] = useState<boolean>(false);
   const [alreadyPlayedToday, setAlreadyPlayedToday] = useState<boolean>(false);
 
+  // Leaderboard state
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+
   useEffect(() => {
-    async function fetchItems() {
+    async function init() {
       try {
         setLoading(true);
+        // Check session
+        const { data: { session } } = await supabase.auth.getSession();
+        setUser(session?.user || null);
+
+        // Fetch items
         const { data, error } = await supabase.from('questions').select('*');
-        
         if (error) throw error;
         if (!data || data.length < 2) {
-          throw new Error('Not enough items in the database for comparison (minimum is 2).');
+          throw new Error('Not enough items in database for comparison (minimum 2).');
         }
-
         setAllItems(data);
+
+        // Fetch leaderboard
+        fetchLeaderboard();
       } catch (err: any) {
-        setError(err.message || 'Error loading data.');
+        setError(err.message || 'Initialization error.');
       } finally {
         setLoading(false);
       }
     }
 
-    fetchItems();
+    init();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
+
+  async function fetchLeaderboard() {
+    const { data } = await supabase
+      .from('scores')
+      .select('score, profiles(email)')
+      .order('score', { ascending: false })
+      .limit(5);
+    if (data) setLeaderboard(data);
+  }
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    const { error } = await supabase.auth.signInWithOtp({ email: emailInput });
+    if (!error) setAuthSent(true);
+  }
 
   function getDailySeed(dateStr: string): number {
     let hash = 0;
@@ -64,15 +102,19 @@ export default function App() {
     return Math.abs(hash);
   }
 
-  function generateRounds(): GamePair[] {
+  function generateRounds(isDaily: boolean): GamePair[] {
     const todayStr = new Date().toISOString().split('T')[0];
     let pool = [...allItems];
 
-    let seed = getDailySeed(todayStr);
-    pool.sort(() => {
-      seed = (seed * 9301 + 49297) % 233280;
-      return (seed / 233280) - 0.5;
-    });
+    if (isDaily) {
+      let seed = getDailySeed(todayStr);
+      pool.sort(() => {
+        seed = (seed * 9301 + 49297) % 233280;
+        return (seed / 233280) - 0.5;
+      });
+    } else {
+      pool.sort(() => Math.random() - 0.5);
+    }
 
     const generatedPairs: GamePair[] = [];
     const totalRoundsNeeded = 5;
@@ -92,15 +134,18 @@ export default function App() {
     return generatedPairs;
   }
 
-  const startGame = () => {
+  const startGame = (isDaily: boolean) => {
     const todayStr = new Date().toISOString().split('T')[0];
-    const lastPlayedDate = localStorage.getItem('valuer_last_played_date');
     
-    if (lastPlayedDate === todayStr) {
-      setAlreadyPlayedToday(true);
+    if (isDaily) {
+      const lastPlayedDate = localStorage.getItem('valuer_last_played_date');
+      if (lastPlayedDate === todayStr) {
+        setAlreadyPlayedToday(true);
+      }
     }
 
-    const newRounds = generateRounds();
+    setDailyMode(isDaily);
+    const newRounds = generateRounds(isDaily);
     setRounds(newRounds);
     setCurrentRoundIndex(0);
     setScore(0);
@@ -123,7 +168,6 @@ export default function App() {
       setScore((prev) => prev + 1);
     }
 
-    // Posun do dalšího kola nebo konec po 2 sekundách (hráč vždy projde všech 5 kol)
     setTimeout(() => {
       if (currentRoundIndex + 1 < rounds.length) {
         setCurrentRoundIndex((prev) => prev + 1);
@@ -131,15 +175,17 @@ export default function App() {
         setIsRevealed(false);
       } else {
         setGameOver(true);
-        const todayStr = new Date().toISOString().split('T')[0];
-        localStorage.setItem('valuer_last_played_date', todayStr);
+        if (dailyMode) {
+          const todayStr = new Date().toISOString().split('T')[0];
+          localStorage.setItem('valuer_last_played_date', todayStr);
+        }
       }
     }, 2000);
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center font-sans">
+      <div className="fixed inset-0 w-screen h-screen bg-slate-950 text-white flex items-center justify-center font-sans">
         <div className="text-xl animate-pulse text-emerald-400 font-medium">Loading Valuer...</div>
       </div>
     );
@@ -147,7 +193,7 @@ export default function App() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4 font-sans">
+      <div className="fixed inset-0 w-screen h-screen bg-slate-950 text-white flex items-center justify-center p-4 font-sans">
         <div className="bg-red-950/50 border border-red-500/50 p-6 rounded-2xl max-w-md text-center shadow-2xl">
           <h2 className="text-lg font-bold mb-2 text-red-400">Error</h2>
           <p className="text-sm text-red-200">{error}</p>
@@ -159,29 +205,94 @@ export default function App() {
   // --- HOME SCREEN ---
   if (!gameStarted) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans selection:bg-emerald-500 selection:text-slate-950">
-        <div className="max-w-md w-full text-center space-y-6">
-          <h1 className="text-6xl font-black tracking-tighter bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+      <div className="min-h-screen w-full bg-slate-950 text-white flex flex-col items-center justify-between p-4 md:p-8 font-sans selection:bg-emerald-500 selection:text-slate-950">
+        {/* Top bar with auth info */}
+        <div className="w-full max-w-4xl flex justify-between items-center py-2">
+          <h1 className="text-xl font-black tracking-tighter bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
             VALUER
           </h1>
-          <p className="text-slate-400 text-sm max-w-xs mx-auto">
-            Compare items, experiences and commodities. Tap the one that costs more!
+          <div>
+            {user ? (
+              <span className="text-xs text-slate-400 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">
+                {user.email}
+              </span>
+            ) : (
+              <span className="text-xs text-slate-500">Guest mode</span>
+            )}
+          </div>
+        </div>
+
+        {/* Main Content */}
+        <div className="max-w-md w-full text-center space-y-6 my-auto">
+          <h2 className="text-5xl font-black tracking-tighter bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+            VALUER
+          </h2>
+          <p className="text-slate-400 text-sm">
+            Compare items and commodities. Tap the one that costs more!
           </p>
 
           {alreadyPlayedToday && (
             <div className="bg-amber-950/40 border border-amber-600/40 text-amber-300 p-3 rounded-xl text-xs font-medium">
-              You have already completed today's challenge. You can play again to practice!
+              You already completed today's daily challenge. You can play free mode!
             </div>
           )}
 
-          <div className="pt-2">
+          <div className="space-y-3 pt-2">
             <button
-              onClick={startGame}
+              onClick={() => startGame(true)}
               className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-2xl transition shadow-lg shadow-emerald-500/20 active:scale-[0.98]"
             >
-              Play Daily Challenge
+              📅 Daily Challenge
+            </button>
+            <button
+              onClick={() => startGame(false)}
+              className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-2xl transition border border-slate-800 active:scale-[0.98]"
+            >
+              🎮 Free Play
             </button>
           </div>
+
+          {/* Auth section if not logged in */}
+          {!user && !authSent && (
+            <form onSubmit={handleLogin} className="pt-4 border-t border-slate-900 space-y-3">
+              <p className="text-xs text-slate-400">Sign in to save your progress & leaderboard rank</p>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  placeholder="name@example.com"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  required
+                />
+                <button type="submit" className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl transition border border-slate-700">
+                  Login
+                </button>
+              </div>
+            </form>
+          )}
+          {authSent && (
+            <div className="text-xs text-emerald-400 bg-emerald-950/30 p-3 rounded-xl border border-emerald-500/30">
+              Check your email for the magic link login!
+            </div>
+          )}
+        </div>
+
+        {/* Footer / Leaderboard preview */}
+        <div className="w-full max-w-md bg-slate-900/50 border border-slate-800/80 p-4 rounded-2xl text-left">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Top Players</h3>
+          {leaderboard.length === 0 ? (
+            <p className="text-xs text-slate-500">No scores yet.</p>
+          ) : (
+            <div className="space-y-1">
+              {leaderboard.map((entry, idx) => (
+                <div key={idx} className="flex justify-between text-xs text-slate-300 py-1 border-b border-slate-800/50 last:border-0">
+                  <span>{entry.profiles?.email || 'Anonymous'}</span>
+                  <span className="font-bold text-emerald-400">{entry.score} pts</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -190,8 +301,8 @@ export default function App() {
   // --- GAME OVER SCREEN ---
   if (gameOver) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans selection:bg-emerald-500 selection:text-slate-950">
-        <div className="max-w-md w-full bg-slate-900/80 border border-slate-800 p-8 rounded-3xl text-center space-y-6 shadow-2xl backdrop-blur-md">
+      <div className="min-h-screen w-full bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans selection:bg-emerald-500 selection:text-slate-950">
+        <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 p-8 rounded-3xl text-center space-y-6 shadow-2xl backdrop-blur-md">
           <h2 className="text-3xl font-black tracking-tight">Challenge Completed!</h2>
           <div className="text-xl text-slate-300">
             Your Score: <span className="font-black text-emerald-400">{score}</span> / {rounds.length}
@@ -212,16 +323,14 @@ export default function App() {
   const currentPair = rounds[currentRoundIndex];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 md:p-8 font-sans max-w-5xl mx-auto selection:bg-emerald-500 selection:text-slate-950">
+    <div className="min-h-screen w-full bg-slate-950 text-white flex flex-col justify-between p-4 md:p-8 font-sans max-w-5xl mx-auto selection:bg-emerald-500 selection:text-slate-950">
       {/* Top Bar */}
       <div className="flex justify-between items-center w-full py-2">
-        <div className="flex items-center space-x-2">
-          <span className="text-lg font-black tracking-tighter bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
-            VALUER
-          </span>
-        </div>
+        <span className="text-lg font-black tracking-tighter bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+          VALUER
+        </span>
         <div className="text-xs font-bold uppercase tracking-wider text-slate-400 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">
-          Round {currentRoundIndex + 1} / {rounds.length}
+          Round {currentRoundIndex + 1} / {rounds.length} {dailyMode && '• Daily'}
         </div>
         <button 
           onClick={() => setGameStarted(false)} 
@@ -238,7 +347,7 @@ export default function App() {
         </h2>
       </div>
 
-      {/* Cards Container (Side by side on desktop, stacked on mobile) */}
+      {/* Cards Container */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 my-auto w-full max-w-4xl mx-auto">
         {/* CARD A */}
         <div
