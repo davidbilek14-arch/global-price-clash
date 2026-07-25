@@ -654,8 +654,8 @@ export default function App() {
                 <div className="flex justify-between items-center bg-slate-900 p-3 rounded-xl border border-slate-800/60">
                   <span className="text-xs text-slate-300 font-medium">Best Accuracy</span>
                   <span className="text-base font-black text-emerald-400">
-                    {dailyStats ? Math.round(((dailyStats.high_score || 0) / questions.length) * 100) : 0}% 
-                    <span className="text-xs text-slate-400 font-normal ml-1">({dailyStats?.high_score || 0}/{questions.length})</span>
+                    {dailyStats ? Math.round(((dailyStats.high_score || 0) / 5) * 100) : 0}% 
+                    <span className="text-xs text-slate-400 font-normal ml-1">({dailyStats?.high_score || 0}/5)</span>
                   </span>
                 </div>
               </div>
