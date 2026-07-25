@@ -83,14 +83,15 @@ export default function App() {
       .catch(() => console.log('IP detection failed, defaulting to US'));
   }, []);
 
-  // Check Auth & Daily Played Status
+  // Check Auth & Played Status for the selected mode
   useEffect(() => {
-    const checkUserAndDailyStatus = async (currentUser: any) => {
+    const checkUserAndPlayStatus = async (currentUser: any) => {
       setUser(currentUser);
 
-      if (currentUser && gameMode === 'daily') {
+      if (currentUser) {
+        const tableName = gameMode === 'daily' ? 'stats' : 'stats_endless';
         const { data: stats, error } = await supabase
-          .from('stats')
+          .from(tableName)
           .select('last_played_date')
           .eq('user_id', currentUser.id)
           .maybeSingle();
@@ -99,17 +100,19 @@ export default function App() {
           const today = getTodayDateString();
           if (stats.last_played_date === today) {
             setGameState('already_played');
+            return;
           }
         }
       }
+      setGameState('playing');
     };
 
     supabase.auth.getUser().then(({ data: { user } }) => {
-      checkUserAndDailyStatus(user);
+      checkUserAndPlayStatus(user);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      checkUserAndDailyStatus(session?.user ?? null);
+      checkUserAndPlayStatus(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
@@ -119,7 +122,6 @@ export default function App() {
     setGameMode(mode);
     setScore(0);
     setCurrentRound(0);
-    setGameState('playing');
     if (mode === 'endless') {
       setEndlessQuestions([...ALL_QUESTIONS].sort(() => Math.random() - 0.5));
     }
@@ -360,7 +362,7 @@ export default function App() {
         </header>
 
         {/* State: Already Played Today */}
-        {gameMode === 'daily' && gameState === 'already_played' ? (
+        {gameState === 'already_played' ? (
           <main className="flex-1 flex flex-col justify-center items-center text-center gap-6 my-8 max-w-md mx-auto w-full">
             <div className="w-20 h-20 bg-amber-950/60 border border-amber-600/50 rounded-full flex items-center justify-center shadow-2xl">
               <CalendarCheck2 className="w-10 h-10 text-amber-400" />
@@ -369,22 +371,22 @@ export default function App() {
             <div>
               <h2 className="text-3xl lg:text-4xl font-black">Played Today!</h2>
               <p className="text-slate-400 mt-2 text-sm lg:text-base leading-relaxed">
-                You have already completed today's challenge. Try out the <b>Endless Mode</b> or come back tomorrow!
+                You have already completed today's <b>{gameMode === 'daily' ? 'Daily' : 'Endless'}</b> challenge. Come back tomorrow for a new attempt!
               </p>
             </div>
 
             <div className="flex flex-col gap-3 w-full">
               <button 
-                onClick={() => switchMode('endless')}
+                onClick={() => switchMode(gameMode === 'daily' ? 'endless' : 'daily')}
                 className="w-full bg-amber-600 hover:bg-amber-500 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base flex items-center justify-center gap-2 shadow-xl cursor-pointer"
               >
-                <Zap className="w-5 h-5" /> Play Endless Mode
+                <Zap className="w-5 h-5" /> Switch to {gameMode === 'daily' ? 'Endless' : 'Daily'} Mode
               </button>
               <button 
-                onClick={() => openLeaderboard('daily')}
+                onClick={() => openLeaderboard(gameMode)}
                 className="w-full bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-700 flex items-center justify-center gap-2 shadow-xl cursor-pointer"
               >
-                <Globe className="w-5 h-5 text-amber-400" /> View Daily Leaderboard
+                <Globe className="w-5 h-5 text-amber-400" /> View Leaderboard
               </button>
             </div>
           </main>
@@ -510,12 +512,6 @@ export default function App() {
                 className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base lg:text-lg flex items-center justify-center gap-2 shadow-xl cursor-pointer"
               >
                 <Share2 className="w-5 h-5" /> {shareNotification ? 'Copied to clipboard! ✅' : 'Share Results'}
-              </button>
-              <button 
-                onClick={() => switchMode(gameMode)}
-                className="w-full bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-700 cursor-pointer shadow-lg"
-              >
-                Play Again 🔄
               </button>
             </div>
           </main>
