@@ -391,10 +391,29 @@ export default function App() {
             </div>
 
             <div>
-              <h2 className="text-3xl lg:text-4xl font-black">Played Today!</h2>
+              <h2 className="text-3xl lg:text-4xl font-black">Come back tomorrow!</h2>
               <p className="text-slate-400 mt-2 text-sm lg:text-base leading-relaxed">
-                You have already completed today's <b>{gameMode === 'daily' ? 'Daily' : 'Endless'}</b> challenge. Come back tomorrow to play both modes again!
+                You have already completed today's <b>{gameMode === 'daily' ? 'Daily' : 'Endless'}</b> challenge. Both game modes reset every day, so make sure to return tomorrow and play them again!
               </p>
+            </div>
+
+            {/* Buy Me a Coffee Callout even when already played */}
+            <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 border border-amber-500/40 rounded-2xl p-4 w-full text-left flex flex-col gap-2.5 shadow-lg">
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                <Sparkles className="w-4 h-4" />
+                <span>Suggest a theme for the next round!</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Buy a coffee ☕, write your favorite topic in the note (e.g., technology, fast food, cars), and I will include it in the game with your name!
+              </p>
+              <a
+                href="https://buymeacoffee.com/davidbilek"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-center"
+              >
+                <Coffee className="w-4 h-4" /> Support & Choose Theme
+              </a>
             </div>
 
             <div className="flex flex-col gap-3 w-full">
@@ -540,8 +559,17 @@ export default function App() {
         )}
 
         {/* Footer */}
-        <footer className="text-center text-xs text-slate-600 pt-4 border-t border-slate-900">
-          Valuer © 2026 • Everyday Global Price Clash
+        <footer className="text-center text-xs text-slate-600 pt-4 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-center gap-3">
+          <span>Valuer © 2026 • Everyday Global Price Clash</span>
+          <span className="hidden sm:inline">•</span>
+          <a 
+            href="https://buymeacoffee.com/davidbilek" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-amber-400 hover:underline flex items-center gap-1 font-semibold"
+          >
+            <Coffee className="w-3.5 h-3.5" /> Buy me a coffee
+          </a>
         </footer>
       </div>
 
