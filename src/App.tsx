@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// --- SUPABASE KONFIGURACE ---
-// Zde si případně uprav své vlastní klíče, pokud je nemáš v .env
-const SUPABASE_URL = 'TJEJ_SUPABASE_URL';
-const SUPABASE_ANON_KEY = 'TVUJ_SUPABASE_ANON_KEY';
+// --- TVÉ SUPABASE PŘIPOJENÍ ---
+const SUPABASE_URL = 'https://yzoiyyhvsdqqoibrocgg.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6b2l5eWh2c2RxcW9pYnJvY2dnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MzA5OTgsImV4cCI6MjEwMDQwNjk5OH0.qCqEUslQwKxvSPAEO_70aLZrjSGJQl7AD_7hyCukL40';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // TypeScript rozhraní pro kartu
@@ -123,7 +122,7 @@ export default function App() {
   if (isLoading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#0f172a', color: '#fff', fontFamily: 'sans-serif' }}>
-        <h2>Načítám bizarní otázky...</h2>
+        <h2>Načítám bizarní otázky ze Supabase...</h2>
       </div>
     );
   }
