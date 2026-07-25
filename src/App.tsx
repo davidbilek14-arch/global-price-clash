@@ -77,7 +77,7 @@ export default function App() {
 
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
-  // Fetch questions from Supabase table based on gameMode ('questions' or 'questions_endless') with localStorage memory
+  // Fetch questions from Supabase table based on gameMode with strict localStorage memory tracking for Endless
   useEffect(() => {
     const fetchQuestions = async () => {
       const tableName = gameMode === 'endless' ? 'questions_endless' : 'questions';
@@ -92,17 +92,21 @@ export default function App() {
         }));
 
         if (gameMode === 'endless') {
-          const videneIdCka = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
-          const nevidene = formatted.filter((karta: any) => !videneIdCka.includes(karta.id));
+          const videneIdCka: number[] = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
           
+          // Filter out already seen cards
+          let nevidene = formatted.filter((karta: any) => !videneIdCka.includes(karta.id));
+          
+          // If all cards have been seen in this session, reset memory
           if (nevidene.length === 0) {
             localStorage.removeItem('hrac_videne_karty');
-            setQuestions([...formatted].sort(() => Math.random() - 0.5));
-          } else {
-            setQuestions([...nevidene].sort(() => Math.random() - 0.5));
+            nevidene = formatted;
           }
+
+          // Shuffle the unseen pool
+          setQuestions([...nevidene].sort(() => Math.random() - 0.5));
         } else {
-          setQuestions(formatted);
+          setQuestions([...formatted].sort(() => Math.random() - 0.5));
         }
       }
     };
@@ -128,7 +132,7 @@ export default function App() {
       const today = getTodayDateString();
       const storageKey = `valuer_played_${gameMode}_${today}`;
 
-      if (localStorage.getItem(storageKey) === 'true') {
+      if (gameMode === 'daily' && localStorage.getItem(storageKey) === 'true') {
         setGameState('already_played');
       } else {
         setGameState('playing');
@@ -151,17 +155,18 @@ export default function App() {
           .maybeSingle();
         if (eStats) setEndlessStats(eStats);
 
-        // Check if already played today for current mode via DB
-        const tableName = gameMode === 'daily' ? 'stats' : 'stats_endless';
-        const { data: currentModeStats } = await supabase
-          .from(tableName)
-          .select('last_played_date')
-          .eq('user_id', currentUser.id)
-          .maybeSingle();
+        // Check if already played today for daily mode via DB
+        if (gameMode === 'daily') {
+          const { data: currentModeStats } = await supabase
+            .from('stats')
+            .select('last_played_date')
+            .eq('user_id', currentUser.id)
+            .maybeSingle();
 
-        if (currentModeStats && currentModeStats.last_played_date === today) {
-          localStorage.setItem(storageKey, 'true');
-          setGameState('already_played');
+          if (currentModeStats && currentModeStats.last_played_date === today) {
+            localStorage.setItem(storageKey, 'true');
+            setGameState('already_played');
+          }
         }
       }
     };
@@ -232,8 +237,9 @@ export default function App() {
   useEffect(() => {
     if (gameState === 'ended') {
       const today = getTodayDateString();
-      const storageKey = `valuer_played_${gameMode}_${today}`;
-      localStorage.setItem(storageKey, 'true');
+      if (gameMode === 'daily') {
+        localStorage.setItem(`valuer_played_daily_${today}`, 'true');
+      }
 
       if (user) {
         const saveStats = async () => {
@@ -306,9 +312,9 @@ export default function App() {
     const q = questions[currentRound % questions.length];
     const isCorrect = isHigher ? q.itemB.priceUSD >= q.itemA.priceUSD : q.itemB.priceUSD <= q.itemA.priceUSD;
 
-    // Save seen card to localStorage in endless mode
+    // Save seen card to localStorage in endless mode immediately
     if (gameMode === 'endless' && q && q.id) {
-      const videneIdCka = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
+      const videneIdCka: number[] = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
       if (!videneIdCka.includes(q.id)) {
         videneIdCka.push(q.id);
         localStorage.setItem('hrac_videne_karty', JSON.stringify(videneIdCka));
@@ -337,8 +343,36 @@ export default function App() {
         setGameState('ended');
       }
     } else {
-      setCurrentRound(currentRound + 1);
-      setGameState('playing');
+      // In endless mode, advance round. If we exceed current question array length, 
+      // fetch/reshuffle unseen items from localStorage pool seamlessly.
+      const nextIdx = currentRound + 1;
+      if (nextIdx >= questions.length) {
+        // Reload fresh unseen questions pool
+        const fetchMoreEndless = async () => {
+          const { data, error } = await supabase.from('questions_endless').select('*');
+          if (!error && data && data.length > 0) {
+            const formatted = data.map((q: any) => ({
+              id: q.id,
+              itemA: { name: q.item_a_name, location: q.item_a_location, priceUSD: Number(q.item_a_price) },
+              itemB: { name: q.item_b_name, location: q.item_b_location, priceUSD: Number(q.item_b_price) },
+              funFact: q.fun_fact
+            }));
+            const videneIdCka: number[] = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
+            let nevidene = formatted.filter((karta: any) => !videneIdCka.includes(karta.id));
+            if (nevidene.length === 0) {
+              localStorage.removeItem('hrac_videne_karty');
+              nevidene = formatted;
+            }
+            setQuestions([...nevidene].sort(() => Math.random() - 0.5));
+            setCurrentRound(0);
+            setGameState('playing');
+          }
+        };
+        fetchMoreEndless();
+      } else {
+        setCurrentRound(nextIdx);
+        setGameState('playing');
+      }
     }
   };
 
@@ -450,7 +484,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* State: Already Played Today */}
+        {/* State: Already Played Today (Daily only) */}
         {gameState === 'already_played' ? (
           <main className="flex-1 flex flex-col justify-center items-center text-center gap-6 my-8 max-w-md mx-auto w-full">
             <div className="w-20 h-20 bg-amber-950/60 border border-amber-600/50 rounded-full flex items-center justify-center shadow-2xl">
@@ -460,7 +494,7 @@ export default function App() {
             <div>
               <h2 className="text-3xl lg:text-4xl font-black">Come back tomorrow!</h2>
               <p className="text-slate-400 mt-2 text-sm lg:text-base leading-relaxed">
-                You have already completed today's <b>{gameMode === 'daily' ? 'Daily' : 'Endless'}</b> challenge. Both game modes reset every day, so make sure to return tomorrow and play them again!
+                You have already completed today's <b>Daily</b> challenge. Make sure to return tomorrow and play again, or switch to Endless mode right now!
               </p>
             </div>
 
@@ -485,20 +519,20 @@ export default function App() {
 
             <div className="flex flex-col gap-3 w-full">
               <button 
-                onClick={() => switchMode(gameMode === 'daily' ? 'endless' : 'daily')}
+                onClick={() => switchMode('endless')}
                 className="w-full bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-700 flex items-center justify-center gap-2 shadow-xl cursor-pointer"
               >
-                <Zap className="w-5 h-5 text-amber-400" /> Check {gameMode === 'daily' ? 'Endless' : 'Daily'} Mode status
+                <Zap className="w-5 h-5 text-amber-400" /> Switch to Endless Mode
               </button>
               <button 
-                onClick={() => openLeaderboard(gameMode)}
+                onClick={() => openLeaderboard('daily')}
                 className="w-full bg-slate-900 hover:bg-slate-800 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-800 flex items-center justify-center gap-2 shadow-xl cursor-pointer"
               >
                 <Globe className="w-5 h-5 text-amber-400" /> View Leaderboard
               </button>
             </div>
           </main>
-        ) : gameState !== 'ended' ? (
+        ) : gameState !== 'ended' && q ? (
           /* Main Game Screen */
           <main className="flex-1 flex flex-col justify-center gap-6 my-6 lg:my-10">
             <div className="flex justify-between items-center max-w-xl mx-auto w-full text-xs lg:text-sm text-slate-400 font-semibold tracking-wider">
