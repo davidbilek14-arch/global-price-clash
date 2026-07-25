@@ -6,7 +6,6 @@ const SUPABASE_URL = 'https://yzoiyyhvsdqqoibrocgg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6b2l5eWh2c2RxcW9pYnJvY2dnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MzA5OTgsImV4cCI6MjEwMDQwNjk5OH0.qCqEUslQwKxvSPAEO_70aLZrjSGJQl7AD_7hyCukL40';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// TypeScript rozhraní pro kartu
 interface Question {
   id: number;
   item_a_name: string;
@@ -27,7 +26,6 @@ export default function App() {
   const [zprava, setZprava] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // 1. Načtení dat při startu aplikace
   useEffect(() => {
     async function inicializujHru() {
       setIsLoading(true);
@@ -43,15 +41,10 @@ export default function App() {
 
       if (data && data.length > 0) {
         setVsechnyKarty(data);
-
-        // Načteme historii z localStorage
         const videneIdCka = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
-        
-        // Zafiltrujeme neviděné
         const nevidene = data.filter((karta) => !videneIdCka.includes(karta.id));
 
         if (nevidene.length === 0) {
-          // Pokud prošel vše, resetujeme paměť
           localStorage.removeItem('hrac_videne_karty');
           setDostupneKarty(data);
           vyberDalsiKartu(data);
@@ -66,7 +59,6 @@ export default function App() {
     inicializujHru();
   }, []);
 
-  // 2. Funkce pro losování další neviděné karty
   const vyberDalsiKartu = (seznamDostupnych?: Question[]) => {
     let pool = seznamDostupnych !== undefined ? seznamDostupnych : [...dostupneKarty];
     let kompletniPool = [...vsechnyKarty];
@@ -79,11 +71,9 @@ export default function App() {
     const nahodnyIndex = Math.floor(Math.random() * pool.length);
     const vybrana = pool[nahodnyIndex];
 
-    // Odstraníme z aktuálního poolu v paměti
     pool.splice(nahodnyIndex, 1);
     setDostupneKarty(pool);
 
-    // Uložíme do localStorage jako viděnou
     const videneIdCka = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
     if (!videneIdCka.includes(vybrana.id)) {
       videneIdCka.push(vybrana.id);
@@ -95,7 +85,6 @@ export default function App() {
     setZprava('');
   };
 
-  // 3. Vyhodnocení tipu uživatele (Vyšší / Nižší)
   const tipovat = (tip: 'higher' | 'lower') => {
     if (!aktualniKarta) return;
 
@@ -122,7 +111,7 @@ export default function App() {
   if (isLoading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#0f172a', color: '#fff', fontFamily: 'sans-serif' }}>
-        <h2>Načítám bizarní otázky ze Supabase...</h2>
+        <h2>Načítám robustní databázi bizarních otázek...</h2>
       </div>
     );
   }
@@ -138,16 +127,13 @@ export default function App() {
   return (
     <div style={{ minHeight: '100vh', background: '#0f172a', color: '#fff', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
       
-      {/* Hlavička a skóre */}
       <div style={{ marginBottom: '30px', textAlign: 'center' }}>
-        <h1 style={{ fontSize: '2.5rem', margin: '0 0 10px 0' }}>Bizarre Higher / Lower</h1>
+        <h1 style={{ fontSize: '2.5rem', margin: '0 0 10px 0' }}>Bizarre Higher / Lower (Endless)</h1>
         <p style={{ fontSize: '1.2rem', color: '#94a3b8' }}>Skóre: <strong style={{ color: '#38bdf8' }}>{skore}</strong></p>
       </div>
 
-      {/* Herní karty */}
       <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '900px', width: '100%' }}>
         
-        {/* Karta A (Fixní) */}
         <div style={{ background: '#1e293b', border: '2px solid #334155', borderRadius: '16px', padding: '30px', width: '350px', textAlign: 'center', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)' }}>
           <span style={{ background: '#3b82f6', color: '#fff', padding: '4px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold' }}>POLOŽKA A</span>
           <h2 style={{ fontSize: '1.5rem', margin: '20px 0 10px 0' }}>{aktualniKarta.item_a_name}</h2>
@@ -157,7 +143,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Karta B (Hodnotu hádáme) */}
         <div style={{ background: '#1e293b', border: '2px solid #334155', borderRadius: '16px', padding: '30px', width: '350px', textAlign: 'center', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div>
             <span style={{ background: '#ec4899', color: '#fff', padding: '4px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold' }}>POLOŽKA B</span>
@@ -168,7 +153,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Tlačítka nebo výsledek */}
           {!zobrazitVysledek ? (
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
               <button 
