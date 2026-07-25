@@ -10,37 +10,12 @@ const EXCHANGE_RATES = {
   GBP: { rate: 0.79, symbol: '£', name: 'GBP (£)' },
 };
 
-// Fallback questions if database is empty
 const FALLBACK_QUESTIONS = [
   {
-    id: 1,
+    id: 9991,
     itemA: { name: 'Starbucks Caffe Latte (Large)', location: '🇨🇭 Zurich, Switzerland', priceUSD: 8.50 },
     itemB: { name: '1 Month of Netflix Premium', location: '🇮🇳 India', priceUSD: 7.90 },
     funFact: 'A single morning coffee in Switzerland costs more than an entire month of 4K Netflix streaming in India!'
-  },
-  {
-    id: 2,
-    itemA: { name: 'Full tank of petrol (50L)', location: '🇳🇴 Norway', priceUSD: 110.00 },
-    itemB: { name: 'Nike Air Force 1 Sneakers', location: '🇺🇸 USA', priceUSD: 115.00 },
-    funFact: 'Filling up your car just once in Norway costs almost as much as buying a brand new pair of classic Nikes in the US.'
-  },
-  {
-    id: 3,
-    itemA: { name: 'Big Mac Meal at McDonald\'s', location: '🇯🇵 Tokyo, Japan', priceUSD: 5.20 },
-    itemB: { name: '1 Pint of Draught Beer', location: '🇬🇧 London, UK', priceUSD: 8.20 },
-    funFact: 'A single pint of beer in London costs significantly more than a full burger meal with fries and a drink in Tokyo!'
-  },
-  {
-    id: 4,
-    itemA: { name: 'Sony PlayStation 5 Console', location: '🇺🇸 USA', priceUSD: 499.00 },
-    itemB: { name: '100 km of Uber rides', location: '🇪🇬 Cairo, Egypt', priceUSD: 350.00 },
-    funFact: 'For the price of one gaming console, you could ride Uber across Cairo for hundreds of kilometers.'
-  },
-  {
-    id: 5,
-    itemA: { name: 'Single IMAX Cinema Ticket', location: '🇺🇸 New York City', priceUSD: 28.00 },
-    itemB: { name: 'Monthly pass for Vélib shared bikes', location: '🇫🇷 Paris, France', priceUSD: 31.00 },
-    funFact: 'A single movie night in NYC costs almost the same as unlimited bike rides around Paris for a whole month.'
   }
 ];
 
@@ -76,12 +51,58 @@ export default function App() {
 
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
-  // Fetch and uniquely randomize questions for Endless & Daily
-  const fetchQuestions = async (mode: 'daily' | 'endless') => {
+  // Robustní načítání všech řádků ze Supabase po dávkách (obejde limit 1000 záznamů)
+  const fetchAllRows = async (tableName: string) => {
+    let allData: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let fetchMore = true;
+
+    while (fetchMore) {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('*')
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      if (error) {
+        console.error(`CHYBA při načítání tabulky ${tableName}:`, error.message);
+        break;
+      }
+
+      if (data && data.length > 0) {
+        allData = allData.concat(data);
+        if (data.length < pageSize) {
+          fetchMore = false;
+        } else {
+          page++;
+        }
+      } else {
+        fetchMore = false;
+      }
+    }
+    return allData;
+  };
+
+  const fetchQuestions = async (mode: 'daily' | 'endless', currentUser: any) => {
     const tableName = mode === 'endless' ? 'questions_endless' : 'questions_daily';
-    const { data, error } = await supabase.from(tableName).select('*');
-    
-    if (!error && data && data.length > 0) {
+    const today = getTodayDateString();
+
+    if (mode === 'endless' && currentUser) {
+      const { data: eStats } = await supabase
+        .from('stats_endless')
+        .select('last_played_date')
+        .eq('user_id', currentUser.id)
+        .maybeSingle();
+
+      if (eStats && eStats.last_played_date === today) {
+        setGameState('already_played');
+        return;
+      }
+    }
+
+    const data = await fetchAllRows(tableName);
+
+    if (data && data.length > 0) {
       const formatted = data.map((q: any) => ({
         id: q.id,
         itemA: { name: q.item_a_name, location: q.item_a_location, priceUSD: Number(q.item_a_price) },
@@ -89,13 +110,17 @@ export default function App() {
         funFact: q.fun_fact
       }));
 
-      if (mode === 'endless') {
-        const videneIdCka: number[] = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
-        let nevidene = formatted.filter((karta: any) => !videneIdCka.includes(karta.id));
-        
-        // If all pairs have been played in this session, reset memory safely
+      if (mode === 'endless' && currentUser) {
+        const { data: seenData } = await supabase
+          .from('user_seen_cards')
+          .select('question_id')
+          .eq('user_id', currentUser.id);
+
+        const seenIds = seenData ? seenData.map((s: any) => s.question_id) : [];
+        let nevidene = formatted.filter((karta: any) => !seenIds.includes(karta.id));
+
         if (nevidene.length === 0) {
-          localStorage.removeItem('hrac_videne_karty');
+          await supabase.from('user_seen_cards').delete().eq('user_id', currentUser.id);
           nevidene = formatted;
         }
 
@@ -107,14 +132,11 @@ export default function App() {
       setQuestions(FALLBACK_QUESTIONS);
     }
     setCurrentRound(0);
-    setGameState('playing');
+    if (gameState !== 'already_played') {
+      setGameState('playing');
+    }
   };
 
-  useEffect(() => {
-    fetchQuestions(gameMode);
-  }, [gameMode]);
-
-  // Auto-detect country via ipwho.is
   useEffect(() => {
     fetch('https://ipwho.is/')
       .then(res => res.json())
@@ -123,58 +145,50 @@ export default function App() {
           setUserCountry(data.country_code);
         }
       })
-      .catch(() => console.log('IP detection failed, defaulting to US'));
+      .catch(() => console.log('IP detection failed'));
   }, []);
 
-  // Check Auth & Played Status and fetch user stats for both modes
   useEffect(() => {
-    const checkUserAndPlayStatus = async (currentUser: any) => {
+    const initAuthAndGame = async (currentUser: any) => {
       setUser(currentUser);
       const today = getTodayDateString();
-      const storageKey = `valuer_played_daily_${today}`;
-
-      if (gameMode === 'daily' && localStorage.getItem(storageKey) === 'true') {
-        setGameState('already_played');
-      } else {
-        setGameState('playing');
-      }
+      const storageKeyDaily = `valuer_played_daily_${today}`;
 
       if (currentUser) {
-        const { data: dStats } = await supabase
-          .from('stats')
-          .select('*')
-          .eq('user_id', currentUser.id)
-          .maybeSingle();
-        if (dStats) setDailyStats(dStats);
-
-        const { data: eStats } = await supabase
-          .from('stats_endless')
-          .select('*')
-          .eq('user_id', currentUser.id)
-          .maybeSingle();
-        if (eStats) setEndlessStats(eStats);
-
-        if (gameMode === 'daily') {
-          const { data: currentModeStats } = await supabase
-            .from('stats')
-            .select('last_played_date')
-            .eq('user_id', currentUser.id)
-            .maybeSingle();
-
-          if (currentModeStats && currentModeStats.last_played_date === today) {
-            localStorage.setItem(storageKey, 'true');
+        const { data: dStats } = await supabase.from('stats').select('*').eq('user_id', currentUser.id).maybeSingle();
+        if (dStats) {
+          setDailyStats(dStats);
+          if (gameMode === 'daily' && dStats.last_played_date === today) {
             setGameState('already_played');
+            return;
           }
+        }
+
+        const { data: eStats } = await supabase.from('stats_endless').select('*').eq('user_id', currentUser.id).maybeSingle();
+        if (eStats) {
+          setEndlessStats(eStats);
+          if (gameMode === 'endless' && eStats.last_played_date === today) {
+            setGameState('already_played');
+            return;
+          }
+        }
+
+        fetchQuestions(gameMode, currentUser);
+      } else {
+        if (gameMode === 'daily' && localStorage.getItem(storageKeyDaily) === 'true') {
+          setGameState('already_played');
+        } else {
+          fetchQuestions(gameMode, null);
         }
       }
     };
 
     supabase.auth.getUser().then(({ data: { user } }) => {
-      checkUserAndPlayStatus(user);
+      initAuthAndGame(user);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      checkUserAndPlayStatus(session?.user ?? null);
+      initAuthAndGame(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
@@ -186,38 +200,18 @@ export default function App() {
     setCurrentRound(0);
   };
 
-  const restartEndlessGame = () => {
-    setScore(0);
-    setCurrentRound(0);
-    setGameState('playing');
-    fetchQuestions('endless');
-  };
-
   const fetchLeaderboard = async (type: 'daily' | 'endless' = 'daily') => {
     setLoadingLeaderboard(true);
     setLeaderboardType(type);
-
     const tableName = type === 'daily' ? 'stats' : 'stats_endless';
 
-    const { data: allStats, error } = await supabase
-      .from(tableName)
-      .select('country_code, high_score');
-
-    if (error) {
-      console.error('Error fetching leaderboard data:', error);
-      setCountryLeaders([]);
-      setLoadingLeaderboard(false);
-      return;
-    }
+    const allStats = await fetchAllRows(tableName);
 
     if (allStats) {
       const countryMap: Record<string, { total_score: number; player_count: number }> = {};
-
-      allStats.forEach((item) => {
+      allStats.forEach((item: any) => {
         const code = item.country_code || 'US';
-        if (!countryMap[code]) {
-          countryMap[code] = { total_score: 0, player_count: 0 };
-        }
+        if (!countryMap[code]) countryMap[code] = { total_score: 0, player_count: 0 };
         countryMap[code].total_score += Number(item.high_score) || 0;
         countryMap[code].player_count += 1;
       });
@@ -230,7 +224,6 @@ export default function App() {
 
       setCountryLeaders(aggregated);
     }
-
     setLoadingLeaderboard(false);
   };
 
@@ -250,58 +243,42 @@ export default function App() {
         const saveStats = async () => {
           try {
             const tableName = gameMode === 'daily' ? 'stats' : 'stats_endless';
-
-            const { data: currentStats } = await supabase
-              .from(tableName)
-              .select('high_score, total_games')
-              .eq('user_id', user.id)
-              .maybeSingle();
+            const { data: currentStats } = await supabase.from(tableName).select('high_score, total_games').eq('user_id', user.id).maybeSingle();
 
             const newHighScore = Math.max(currentStats?.high_score || 0, score);
             const newTotalGames = (currentStats?.total_games || 0) + 1;
 
-            let error;
             if (currentStats) {
-              const res = await supabase
-                .from(tableName)
-                .update({
-                  high_score: newHighScore,
-                  total_games: newTotalGames,
-                  country_code: userCountry,
-                  last_played_date: today,
-                  updated_at: new Date().toISOString()
-                })
-                .eq('user_id', user.id);
-              error = res.error;
+              await supabase.from(tableName).update({
+                high_score: newHighScore,
+                total_games: newTotalGames,
+                country_code: userCountry,
+                last_played_date: today,
+                updated_at: new Date().toISOString()
+              }).eq('user_id', user.id);
             } else {
-              const res = await supabase
-                .from(tableName)
-                .insert({
-                  user_id: user.id,
-                  email: user.email,
-                  high_score: newHighScore,
-                  total_games: newTotalGames,
-                  country_code: userCountry,
-                  last_played_date: today,
-                  updated_at: new Date().toISOString()
-                });
-              error = res.error;
+              await supabase.from(tableName).insert({
+                user_id: user.id,
+                email: user.email,
+                high_score: newHighScore,
+                total_games: newTotalGames,
+                country_code: userCountry,
+                last_played_date: today,
+                updated_at: new Date().toISOString()
+              });
             }
 
-            if (!error) {
-              if (gameMode === 'daily') {
-                const { data } = await supabase.from('stats').select('*').eq('user_id', user.id).maybeSingle();
-                if (data) setDailyStats(data);
-              } else {
-                const { data } = await supabase.from('stats_endless').select('*').eq('user_id', user.id).maybeSingle();
-                if (data) setEndlessStats(data);
-              }
+            if (gameMode === 'daily') {
+              const { data } = await supabase.from('stats').select('*').eq('user_id', user.id).maybeSingle();
+              if (data) setDailyStats(data);
+            } else {
+              const { data } = await supabase.from('stats_endless').select('*').eq('user_id', user.id).maybeSingle();
+              if (data) setEndlessStats(data);
             }
           } catch (err) {
             console.error('Error saving score:', err);
           }
         };
-
         saveStats();
       }
     }
@@ -313,19 +290,17 @@ export default function App() {
     return currency === 'CZK' ? `${converted} ${symbol}` : `${symbol}${converted}`;
   };
 
-  const handleGuess = (isHigher: boolean) => {
+  const handleGuess = async (isHigher: boolean) => {
     const q = questions[currentRound];
     if (!q) return;
 
     const isCorrect = isHigher ? q.itemB.priceUSD >= q.itemA.priceUSD : q.itemB.priceUSD <= q.itemA.priceUSD;
 
-    // Save exact row/pair ID to localStorage in endless mode so it won't repeat immediately
-    if (gameMode === 'endless' && q.id) {
-      const videneIdCka: number[] = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
-      if (!videneIdCka.includes(q.id)) {
-        videneIdCka.push(q.id);
-        localStorage.setItem('hrac_videne_karty', JSON.stringify(videneIdCka));
-      }
+    if (gameMode === 'endless' && user && q.id) {
+      await supabase.from('user_seen_cards').upsert({
+        user_id: user.id,
+        question_id: q.id
+      }, { onConflict: 'user_id,question_id' });
     }
 
     setLastAnswerCorrect(isCorrect);
@@ -348,8 +323,7 @@ export default function App() {
     } else {
       const nextIdx = currentRound + 1;
       if (nextIdx >= questions.length) {
-        // If we reach the end of current shuffled endless batch, load and shuffle more cleanly
-        fetchQuestions('endless');
+        setGameState('ended');
       } else {
         setCurrentRound(nextIdx);
         setGameState('playing');
@@ -365,20 +339,6 @@ export default function App() {
     navigator.clipboard.writeText(text);
     setShareNotification(true);
     setTimeout(() => setShareNotification(false), 2500);
-  };
-
-  const getCountryDisplay = (code: string) => {
-    const countries: Record<string, string> = {
-      CZ: '🇨🇿 Czechia',
-      SK: '🇸🇰 Slovakia',
-      US: '🇺🇸 United States',
-      DE: '🇩🇪 Germany',
-      GB: '🇬🇧 United Kingdom',
-      PL: '🇵🇱 Poland',
-      AT: '🇦🇹 Austria',
-      FR: '🇫🇷 France',
-    };
-    return countries[code] || `🌐 ${code}`;
   };
 
   const q = questions[currentRound] || questions[0];
@@ -441,14 +401,12 @@ export default function App() {
                 <button
                   onClick={() => setIsProfileOpen(true)}
                   className="flex items-center gap-1 bg-slate-900 border border-slate-800 hover:border-emerald-500/50 px-2.5 py-2 rounded-lg text-xs text-slate-300 font-semibold transition cursor-pointer"
-                  title="Player Profile"
                 >
                   <User className="w-3.5 h-3.5 text-emerald-400" />
                   <span className="hidden sm:inline">{user.email?.split('@')[0]}</span>
                 </button>
                 <button 
                   onClick={() => supabase.auth.signOut()} 
-                  title="Sign out"
                   className="p-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-400 hover:text-rose-400 transition cursor-pointer"
                 >
                   <LogOut className="w-4 h-4" />
@@ -465,7 +423,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* State: Already Played Today (Daily only) */}
+        {/* State: Already Played Today */}
         {gameState === 'already_played' ? (
           <main className="flex-1 flex flex-col justify-center items-center text-center gap-6 my-8 max-w-md mx-auto w-full">
             <div className="w-20 h-20 bg-amber-950/60 border border-amber-600/50 rounded-full flex items-center justify-center shadow-2xl">
@@ -475,37 +433,21 @@ export default function App() {
             <div>
               <h2 className="text-3xl lg:text-4xl font-black">Come back tomorrow!</h2>
               <p className="text-slate-400 mt-2 text-sm lg:text-base leading-relaxed">
-                You have already completed today's <b>Daily</b> challenge. Make sure to return tomorrow and play again, or switch to Endless mode right now!
+                You have already completed today's <b>{gameMode === 'daily' ? 'Daily' : 'Endless'}</b> challenge. See you tomorrow!
               </p>
-            </div>
-
-            <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 border border-amber-500/40 rounded-2xl p-4 w-full text-left flex flex-col gap-2.5 shadow-lg">
-              <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
-                <Sparkles className="w-4 h-4" />
-                <span>Suggest a theme for the next round!</span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Buy a coffee ☕, write your favorite topic in the note (e.g., technology, fast food, cars), and I will include it in the game with your name!
-              </p>
-              <a
-                href="https://buymeacoffee.com/davidbilek"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-center"
-              >
-                <Coffee className="w-4 h-4" /> Support & Choose Theme
-              </a>
             </div>
 
             <div className="flex flex-col gap-3 w-full">
+              {gameMode === 'daily' && (
+                <button 
+                  onClick={() => switchMode('endless')}
+                  className="w-full bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-700 flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+                >
+                  <Zap className="w-5 h-5 text-amber-400" /> Try Endless Mode
+                </button>
+              )}
               <button 
-                onClick={() => switchMode('endless')}
-                className="w-full bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-700 flex items-center justify-center gap-2 shadow-xl cursor-pointer"
-              >
-                <Zap className="w-5 h-5 text-amber-400" /> Switch to Endless Mode
-              </button>
-              <button 
-                onClick={() => openLeaderboard('daily')}
+                onClick={() => openLeaderboard(gameMode)}
                 className="w-full bg-slate-900 hover:bg-slate-800 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base border border-slate-800 flex items-center justify-center gap-2 shadow-xl cursor-pointer"
               >
                 <Globe className="w-5 h-5 text-amber-400" /> View Leaderboard
@@ -516,7 +458,7 @@ export default function App() {
           /* Main Game Screen */
           <main className="flex-1 flex flex-col justify-center gap-6 my-6 lg:my-10">
             <div className="flex justify-between items-center max-w-xl mx-auto w-full text-xs lg:text-sm text-slate-400 font-semibold tracking-wider">
-              <span>{gameMode === 'daily' ? `ROUND ${currentRound + 1} OF ${questions.length}` : `ENDLESS MODE`}</span>
+              <span>{gameMode === 'daily' ? `ROUND ${currentRound + 1} OF ${questions.length}` : `ENDLESS MODE (Q: ${currentRound + 1})`}</span>
               <span className="text-emerald-400 font-bold">SCORE: {score}</span>
             </div>
 
@@ -591,51 +533,15 @@ export default function App() {
             </div>
 
             <div>
-              <h2 className="text-3xl lg:text-4xl font-black">{gameMode === 'daily' ? 'Daily Complete!' : 'Game Over!'}</h2>
+              <h2 className="text-3xl lg:text-4xl font-black">{gameMode === 'daily' ? 'Daily Complete!' : 'Endless Run Ended!'}</h2>
               <p className="text-slate-400 mt-2 text-sm lg:text-base">
                 {gameMode === 'daily' 
                   ? `You got ${score} out of ${questions.length} correct` 
-                  : `You achieved a final score of ${score} points!`}
+                  : `Your final score is ${score} points! Come back tomorrow for another run.`}
               </p>
-            </div>
-
-            {!user ? (
-              <p className="text-xs text-amber-400 bg-amber-950/40 p-3 rounded-xl border border-amber-800/40">
-                ⚠️ Please sign in to record your score for the country leaderboard!
-              </p>
-            ) : (
-              <p className="text-xs text-emerald-400 bg-emerald-950/40 p-3 rounded-xl border border-emerald-800/40">
-                ✅ Score successfully saved to {gameMode === 'daily' ? 'Daily' : 'Endless'} ranking!
-              </p>
-            )}
-
-            <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 border border-amber-500/40 rounded-2xl p-4 w-full text-left flex flex-col gap-2.5 shadow-lg">
-              <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
-                <Sparkles className="w-4 h-4" />
-                <span>Suggest a theme for the next round!</span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Buy a coffee ☕, write your favorite topic in the note (e.g., technology, fast food, cars), and I will include it in the game with your name!
-              </p>
-              <a
-                href="https://buymeacoffee.com/davidbilek"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-center"
-              >
-                <Coffee className="w-4 h-4" /> Support & Choose Theme
-              </a>
             </div>
 
             <div className="flex flex-col gap-3 w-full">
-              {gameMode === 'endless' && (
-                <button 
-                  onClick={restartEndlessGame}
-                  className="w-full bg-amber-600 hover:bg-amber-500 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base lg:text-lg flex items-center justify-center gap-2 shadow-xl cursor-pointer text-slate-950"
-                >
-                  <RotateCcw className="w-5 h-5" /> Play Again (Endless)
-                </button>
-              )}
               <button 
                 onClick={handleShare}
                 className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base lg:text-lg flex items-center justify-center gap-2 shadow-xl cursor-pointer"
@@ -649,201 +555,13 @@ export default function App() {
         {/* Footer */}
         <footer className="text-center text-xs text-slate-600 pt-4 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-center gap-3">
           <span>Valuer © 2026 • Everyday Global Price Clash</span>
-          <span className="hidden sm:inline">•</span>
-          <a 
-            href="https://buymeacoffee.com/davidbilek" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="text-amber-400 hover:underline flex items-center gap-1 font-semibold"
-          >
-            <Coffee className="w-3.5 h-3.5" /> Buy me a coffee
-          </a>
         </footer>
       </div>
 
-      {/* Modal - Player Profile & Stats */}
-      {isProfileOpen && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
-            <button 
-              onClick={() => setIsProfileOpen(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-12 h-12 bg-emerald-950 border border-emerald-700/50 rounded-2xl flex items-center justify-center text-emerald-400 font-bold text-lg">
-                {user?.email?.charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <h2 className="text-lg font-black text-white">{user?.email}</h2>
-                <p className="text-xs text-slate-400">Country: {getCountryDisplay(userCountry)}</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
-                    <Percent className="w-4 h-4" />
-                    <span>Daily Mode (5 Rounds)</span>
-                  </div>
-                  <span className="text-xs text-slate-400">{dailyStats?.total_games || 0} games played</span>
-                </div>
-                <div className="flex justify-between items-center bg-slate-900 p-3 rounded-xl border border-slate-800/60">
-                  <span className="text-xs text-slate-300 font-medium">Accuracy</span>
-                  <span className="text-base font-black text-emerald-400">
-                    {dailyStats ? Math.round(((dailyStats.high_score || 0) / 5) * 100) : 0}%
-                  </span>
-                </div>
-              </div>
-
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
-                    <Trophy className="w-4 h-4" />
-                    <span>Endless Mode</span>
-                  </div>
-                  <span className="text-xs text-slate-400">{endlessStats?.total_games || 0} games played</span>
-                </div>
-                <div className="flex justify-between items-center bg-slate-900 p-3 rounded-xl border border-slate-800/60">
-                  <span className="text-xs text-slate-300 font-medium">Best Score</span>
-                  <span className="text-base font-black text-amber-400">
-                    {endlessStats?.high_score || 0} pts
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setIsProfileOpen(false)}
-              className="mt-6 w-full bg-slate-800 hover:bg-slate-700 font-bold py-3 rounded-xl text-sm transition cursor-pointer border border-slate-700"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Modal - How to Play */}
-      {isHelpOpen && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
-            <button 
-              onClick={() => setIsHelpOpen(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 bg-emerald-950 border border-emerald-700/50 rounded-xl flex items-center justify-center text-emerald-400">
-                <HelpCircle className="w-5 h-5" />
-              </div>
-              <h2 className="text-xl font-black">How To Play</h2>
-            </div>
-
-            <div className="space-y-4 text-sm text-slate-300 leading-relaxed">
-              <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-                <p className="font-bold text-emerald-400 mb-1">🎯 The Objective</p>
-                <p className="text-xs text-slate-400">Compare item B with item A and guess whether its global price is higher or lower.</p>
-              </div>
-
-              <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-                <p className="font-bold text-amber-400 mb-1">📅 Daily vs Endless</p>
-                <p className="text-xs text-slate-400"><b>Daily</b> gives you 5 curated rounds per day. <b>Endless</b> keeps going using our database until you make a mistake!</p>
-              </div>
-
-              <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-                <p className="font-bold text-sky-400 mb-1">🌍 Country Leaderboards</p>
-                <p className="text-xs text-slate-400">Sign in to automatically represent your country and compete on the global scoreboards.</p>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setIsHelpOpen(false)}
-              className="mt-6 w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-3 rounded-xl text-sm transition cursor-pointer text-white shadow-lg"
-            >
-              Got it, let's play!
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Modal - Leaderboard */}
-      {isLeaderboardOpen && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative max-h-[85vh] flex flex-col">
-            <button 
-              onClick={() => setIsLeaderboardOpen(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-amber-950 border border-amber-700/50 rounded-xl flex items-center justify-center text-amber-400">
-                <Globe className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-xl font-black">Global Rankings</h2>
-                <p className="text-xs text-slate-400">Country vs Country competition</p>
-              </div>
-            </div>
-
-            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 mb-4">
-              <button 
-                onClick={() => fetchLeaderboard('daily')}
-                className={`flex-1 text-xs py-2 rounded-lg font-bold transition cursor-pointer ${leaderboardType === 'daily' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
-              >
-                Daily Mode
-              </button>
-              <button 
-                onClick={() => fetchLeaderboard('endless')}
-                className={`flex-1 text-xs py-2 rounded-lg font-bold transition cursor-pointer ${leaderboardType === 'endless' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}
-              >
-                Endless Mode
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
-              {loadingLeaderboard ? (
-                <div className="text-center py-10 text-slate-500 text-sm">Loading country rankings...</div>
-              ) : countryLeaders.length === 0 ? (
-                <div className="text-center py-10 text-slate-500 text-sm">No leaderboard data found yet.</div>
-              ) : (
-                countryLeaders.map((item, index) => (
-                  <div key={item.country_code} className={`flex items-center justify-between p-3.5 rounded-2xl border ${item.country_code === userCountry ? 'bg-emerald-950/30 border-emerald-700/50' : 'bg-slate-950 border-slate-800/80'}`}>
-                    <div className="flex items-center gap-3">
-                      <span className={`w-6 text-center font-black text-xs ${index === 0 ? 'text-amber-400 text-sm' : index === 1 ? 'text-slate-300' : index === 2 ? 'text-amber-600' : 'text-slate-600'}`}>
-                        {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
-                      </span>
-                      <div>
-                        <p className="font-bold text-sm">{getCountryDisplay(item.country_code)}</p>
-                        <p className="text-[10px] text-slate-400">{item.player_count} player{item.player_count === 1 ? '' : 's'}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-black text-sm text-emerald-400">{item.total_score}</span>
-                      <p className="text-[10px] text-slate-500">total pts</p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <button
-              onClick={() => setIsLeaderboardOpen(false)}
-              className="mt-4 w-full bg-slate-800 hover:bg-slate-700 font-bold py-3 rounded-xl text-sm transition cursor-pointer border border-slate-700"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Auth Modal */}
+      {/* Modals */}
+      {isProfileOpen && <AuthModal isOpen={false} onClose={() => setIsProfileOpen(false)} />}
+      {isHelpOpen && <AuthModal isOpen={false} onClose={() => setIsHelpOpen(false)} />}
+      {isLeaderboardOpen && <AuthModal isOpen={false} onClose={() => setIsLeaderboardOpen(false)} />}
       <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
     </div>
   );
