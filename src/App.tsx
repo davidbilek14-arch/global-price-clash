@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap, Sparkles, HelpCircle, User, Percent } from 'lucide-react';
+import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap, Sparkles, HelpCircle, User, Percent, RotateCcw } from 'lucide-react';
 import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
@@ -77,39 +77,41 @@ export default function App() {
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
   // Fetch and uniquely randomize questions for Endless & Daily
-  useEffect(() => {
-    const fetchQuestions = async () => {
-      const tableName = gameMode === 'endless' ? 'questions_endless' : 'questions';
-      const { data, error } = await supabase.from(tableName).select('*');
-      
-      if (!error && data && data.length > 0) {
-        const formatted = data.map((q: any) => ({
-          id: q.id,
-          itemA: { name: q.item_a_name, location: q.item_a_location, priceUSD: Number(q.item_a_price) },
-          itemB: { name: q.item_b_name, location: q.item_b_location, priceUSD: Number(q.item_b_price) },
-          funFact: q.fun_fact
-        }));
+  const fetchQuestions = async (mode: 'daily' | 'endless') => {
+    const tableName = mode === 'endless' ? 'questions_endless' : 'questions_daily';
+    const { data, error } = await supabase.from(tableName).select('*');
+    
+    if (!error && data && data.length > 0) {
+      const formatted = data.map((q: any) => ({
+        id: q.id,
+        itemA: { name: q.item_a_name, location: q.item_a_location, priceUSD: Number(q.item_a_price) },
+        itemB: { name: q.item_b_name, location: q.item_b_location, priceUSD: Number(q.item_b_price) },
+        funFact: q.fun_fact
+      }));
 
-        if (gameMode === 'endless') {
-          const videneIdCka: number[] = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
-          
-          let nevidene = formatted.filter((karta: any) => !videneIdCka.includes(karta.id));
-          
-          // If all pairs have been played in this session, reset memory safely
-          if (nevidene.length === 0) {
-            localStorage.removeItem('hrac_videne_karty');
-            nevidene = formatted;
-          }
-
-          // Randomize order uniquely for this session
-          setQuestions([...nevidene].sort(() => Math.random() - 0.5));
-        } else {
-          setQuestions([...formatted].sort(() => Math.random() - 0.5));
+      if (mode === 'endless') {
+        const videneIdCka: number[] = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
+        let nevidene = formatted.filter((karta: any) => !videneIdCka.includes(karta.id));
+        
+        // If all pairs have been played in this session, reset memory safely
+        if (nevidene.length === 0) {
+          localStorage.removeItem('hrac_videne_karty');
+          nevidene = formatted;
         }
+
+        setQuestions([...nevidene].sort(() => Math.random() - 0.5));
+      } else {
+        setQuestions([...formatted].sort(() => Math.random() - 0.5));
       }
-      setCurrentRound(0);
-    };
-    fetchQuestions();
+    } else {
+      setQuestions(FALLBACK_QUESTIONS);
+    }
+    setCurrentRound(0);
+    setGameState('playing');
+  };
+
+  useEffect(() => {
+    fetchQuestions(gameMode);
   }, [gameMode]);
 
   // Auto-detect country via ipwho.is
@@ -182,6 +184,13 @@ export default function App() {
     setGameMode(mode);
     setScore(0);
     setCurrentRound(0);
+  };
+
+  const restartEndlessGame = () => {
+    setScore(0);
+    setCurrentRound(0);
+    setGameState('playing');
+    fetchQuestions('endless');
   };
 
   const fetchLeaderboard = async (type: 'daily' | 'endless' = 'daily') => {
@@ -310,7 +319,7 @@ export default function App() {
 
     const isCorrect = isHigher ? q.itemB.priceUSD >= q.itemA.priceUSD : q.itemB.priceUSD <= q.itemA.priceUSD;
 
-    // Save exact row/pair ID to localStorage in endless mode so it won't repeat
+    // Save exact row/pair ID to localStorage in endless mode so it won't repeat immediately
     if (gameMode === 'endless' && q.id) {
       const videneIdCka: number[] = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
       if (!videneIdCka.includes(q.id)) {
@@ -324,11 +333,7 @@ export default function App() {
       setScore(score + 1);
       setGameState('revealed');
     } else {
-      if (gameMode === 'endless') {
-        setGameState('ended');
-      } else {
-        setGameState('revealed');
-      }
+      setGameState('ended');
     }
   };
 
@@ -343,28 +348,8 @@ export default function App() {
     } else {
       const nextIdx = currentRound + 1;
       if (nextIdx >= questions.length) {
-        // Fetch remaining unseen pairs, or refresh nicely when all database rows have been played
-        const fetchMoreEndless = async () => {
-          const { data, error } = await supabase.from('questions_endless').select('*');
-          if (!error && data && data.length > 0) {
-            const formatted = data.map((q: any) => ({
-              id: q.id,
-              itemA: { name: q.item_a_name, location: q.item_a_location, priceUSD: Number(q.item_a_price) },
-              itemB: { name: q.item_b_name, location: q.item_b_location, priceUSD: Number(q.item_b_price) },
-              funFact: q.fun_fact
-            }));
-            const videneIdCka: number[] = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
-            let nevidene = formatted.filter((karta: any) => !videneIdCka.includes(karta.id));
-            if (nevidene.length === 0) {
-              localStorage.removeItem('hrac_videne_karty');
-              nevidene = formatted;
-            }
-            setQuestions([...nevidene].sort(() => Math.random() - 0.5));
-            setCurrentRound(0);
-            setGameState('playing');
-          }
-        };
-        fetchMoreEndless();
+        // If we reach the end of current shuffled endless batch, load and shuffle more cleanly
+        fetchQuestions('endless');
       } else {
         setCurrentRound(nextIdx);
         setGameState('playing');
@@ -643,6 +628,14 @@ export default function App() {
             </div>
 
             <div className="flex flex-col gap-3 w-full">
+              {gameMode === 'endless' && (
+                <button 
+                  onClick={restartEndlessGame}
+                  className="w-full bg-amber-600 hover:bg-amber-500 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base lg:text-lg flex items-center justify-center gap-2 shadow-xl cursor-pointer text-slate-950"
+                >
+                  <RotateCcw className="w-5 h-5" /> Play Again (Endless)
+                </button>
+              )}
               <button 
                 onClick={handleShare}
                 className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition-all font-bold py-4 rounded-2xl text-base lg:text-lg flex items-center justify-center gap-2 shadow-xl cursor-pointer"
