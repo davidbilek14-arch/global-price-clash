@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// --- SUPABASE SETUP ---
-// Doporučuji mít tyto klíče v .env souboru (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'YOUR_SUPABASE_URL';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'YOUR_SUPABASE_ANON_KEY';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -25,20 +23,16 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Herní stavy
   const [gameStarted, setGameStarted] = useState<boolean>(false);
-  const [dailyMode, setDailyMode] = useState<boolean>(false);
   const [rounds, setRounds] = useState<GamePair[]>([]);
   const [currentRoundIndex, setCurrentRoundIndex] = useState<number>(0);
   const [score, setScore] = useState<number>(0);
   
-  // Interaktivní stav kola
   const [selectedChoice, setSelectedChoice] = useState<'A' | 'B' | null>(null);
   const [isRevealed, setIsRevealed] = useState<boolean>(false);
   const [gameOver, setGameOver] = useState<boolean>(false);
   const [alreadyPlayedToday, setAlreadyPlayedToday] = useState<boolean>(false);
 
-  // 1. Načtení dat z Supabase při startu
   useEffect(() => {
     async function fetchItems() {
       try {
@@ -47,12 +41,12 @@ export default function App() {
         
         if (error) throw error;
         if (!data || data.length < 2) {
-          throw new Error('V databázi není dostatek položek pro porovnávání (minimum je 2).');
+          throw new Error('Not enough items in the database for comparison (minimum is 2).');
         }
 
         setAllItems(data);
       } catch (err: any) {
-        setError(err.message || 'Chyba při načítání dat.');
+        setError(err.message || 'Error loading data.');
       } finally {
         setLoading(false);
       }
@@ -61,7 +55,6 @@ export default function App() {
     fetchItems();
   }, []);
 
-  // Pomocná funkce: Pseudo-náhodný generátor s A-Z seedem (pro Daily Challenge)
   function getDailySeed(dateStr: string): number {
     let hash = 0;
     for (let i = 0; i < dateStr.length; i++) {
@@ -71,60 +64,43 @@ export default function App() {
     return Math.abs(hash);
   }
 
-  // Generování sekvence kol (5 kol)
-  function generateRounds(isDaily: boolean): GamePair[] {
+  function generateRounds(): GamePair[] {
     const todayStr = new Date().toISOString().split('T')[0];
-    let currentIndex = 0;
-
     let pool = [...allItems];
 
-    if (isDaily) {
-      // Deterministické zamíchání podle dne
-      let seed = getDailySeed(todayStr);
-      pool.sort(() => {
-        seed = (seed * 9301 + 49297) % 233280;
-        return (seed / 233280) - 0.5;
-      });
-    } else {
-      // Náhodné zamíchání pro normální hru
-      pool.sort(() => Math.random() - 0.5);
-    }
+    let seed = getDailySeed(todayStr);
+    pool.sort(() => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return (seed / 233280) - 0.5;
+    });
 
     const generatedPairs: GamePair[] = [];
     const totalRoundsNeeded = 5;
 
     for (let i = 0; i < totalRoundsNeeded; i++) {
-      // Potřebujeme 2 položky pro jedno kolo
       const itemA = pool[(i * 2) % pool.length];
       let itemB = pool[(i * 2 + 1) % pool.length];
 
-      // Ochrana proti stejné položce
       if (itemA.id === itemB.id) {
         itemB = pool[(i * 2 + 2) % pool.length] || pool[0];
       }
 
       const correctAnswer: 'A' | 'B' = itemA.price >= itemB.price ? 'A' : 'B';
-
       generatedPairs.push({ itemA, itemB, correctAnswer });
     }
 
     return generatedPairs;
   }
 
-  // Start hry (Denní výzva vs. Nekonečná hra)
-  const startGame = (isDaily: boolean) => {
+  const startGame = () => {
     const todayStr = new Date().toISOString().split('T')[0];
+    const lastPlayedDate = localStorage.getItem('valuer_last_played_date');
     
-    if (isDaily) {
-      const lastPlayedDate = localStorage.getItem('valuer_last_played_date');
-      if (lastPlayedDate === todayStr) {
-        setAlreadyPlayedToday(true);
-        return;
-      }
+    if (lastPlayedDate === todayStr) {
+      setAlreadyPlayedToday(true);
     }
 
-    setDailyMode(isDaily);
-    const newRounds = generateRounds(isDaily);
+    const newRounds = generateRounds();
     setRounds(newRounds);
     setCurrentRoundIndex(0);
     setScore(0);
@@ -132,10 +108,8 @@ export default function App() {
     setIsRevealed(false);
     setGameOver(false);
     setGameStarted(true);
-    setAlreadyPlayedToday(false);
   };
 
-  // Kliknutí na kartu A nebo B
   const handleChoice = (choice: 'A' | 'B') => {
     if (isRevealed || gameOver) return;
 
@@ -149,81 +123,63 @@ export default function App() {
       setScore((prev) => prev + 1);
     }
 
-    // Po prodlevě přejdeme na další kolo nebo ukončíme hru
+    // Posun do dalšího kola nebo konec po 2 sekundách (hráč vždy projde všech 5 kol)
     setTimeout(() => {
-      if (isCorrect) {
-        if (currentRoundIndex + 1 < rounds.length) {
-          setCurrentRoundIndex((prev) => prev + 1);
-          setSelectedChoice(null);
-          setIsRevealed(false);
-        } else {
-          // Konec hry - výhra / dokončení všech kol
-          setGameOver(true);
-          if (dailyMode) {
-            const todayStr = new Date().toISOString().split('T')[0];
-            localStorage.setItem('valuer_last_played_date', todayStr);
-          }
-        }
+      if (currentRoundIndex + 1 < rounds.length) {
+        setCurrentRoundIndex((prev) => prev + 1);
+        setSelectedChoice(null);
+        setIsRevealed(false);
       } else {
-        // Konec hry - prohra
         setGameOver(true);
-        if (dailyMode) {
-          const todayStr = new Date().toISOString().split('T')[0];
-          localStorage.setItem('valuer_last_played_date', todayStr);
-        }
+        const todayStr = new Date().toISOString().split('T')[0];
+        localStorage.setItem('valuer_last_played_date', todayStr);
       }
-    }, 2000); // 2 sekundy na zobrazení cen a výsledku
+    }, 2000);
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center font-sans">
-        <div className="text-xl animate-pulse">Načítám Valuer...</div>
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center font-sans">
+        <div className="text-xl animate-pulse text-emerald-400 font-medium">Loading Valuer...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4 font-sans">
-        <div className="bg-red-900/50 border border-red-500 p-6 rounded-xl max-w-md text-center">
-          <h2 className="text-lg font-bold mb-2">Chyba</h2>
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4 font-sans">
+        <div className="bg-red-950/50 border border-red-500/50 p-6 rounded-2xl max-w-md text-center shadow-2xl">
+          <h2 className="text-lg font-bold mb-2 text-red-400">Error</h2>
           <p className="text-sm text-red-200">{error}</p>
         </div>
       </div>
     );
   }
 
-  // --- HLAVNÍ MENU ---
+  // --- HOME SCREEN ---
   if (!gameStarted) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans">
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans selection:bg-emerald-500 selection:text-slate-950">
         <div className="max-w-md w-full text-center space-y-6">
-          <h1 className="text-5xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+          <h1 className="text-6xl font-black tracking-tighter bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
             VALUER
           </h1>
-          <p className="text-slate-400 text-sm">
-            Porovnávej věci, zážitky a komodity. Klikni na to, co stojí víc!
+          <p className="text-slate-400 text-sm max-w-xs mx-auto">
+            Compare items, experiences and commodities. Tap the one that costs more!
           </p>
 
           {alreadyPlayedToday && (
-            <div className="bg-amber-900/40 border border-amber-600/50 text-amber-200 p-3 rounded-lg text-sm">
-              Dnešní denní výzvu už máš splněnou. Zkus volnou hru!
+            <div className="bg-amber-950/40 border border-amber-600/40 text-amber-300 p-3 rounded-xl text-xs font-medium">
+              You have already completed today's challenge. You can play again to practice!
             </div>
           )}
 
-          <div className="space-y-3 pt-4">
+          <div className="pt-2">
             <button
-              onClick={() => startGame(true)}
-              className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl transition shadow-lg shadow-emerald-500/20"
+              onClick={startGame}
+              className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-2xl transition shadow-lg shadow-emerald-500/20 active:scale-[0.98]"
             >
-              📅 Denní výzva (Daily Challenge)
-            </button>
-            <button
-              onClick={() => startGame(false)}
-              className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-xl transition border border-slate-700"
-            >
-              🎮 Volná hra
+              Play Daily Challenge
             </button>
           </div>
         </div>
@@ -231,77 +187,74 @@ export default function App() {
     );
   }
 
-  // --- OBRAZOVKA KONCE HRY ---
+  // --- GAME OVER SCREEN ---
   if (gameOver) {
-    const currentPair = rounds[currentRoundIndex];
-    const userWonAll = score === rounds.length;
-
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 p-8 rounded-2xl text-center space-y-6 shadow-xl">
-          <h2 className="text-3xl font-bold">
-            {userWonAll ? '🎉 Skvělá práce!' + (dailyMode ? ' Výzva splněna!' : '') : '❌ Konec hry!'}
-          </h2>
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans selection:bg-emerald-500 selection:text-slate-950">
+        <div className="max-w-md w-full bg-slate-900/80 border border-slate-800 p-8 rounded-3xl text-center space-y-6 shadow-2xl backdrop-blur-md">
+          <h2 className="text-3xl font-black tracking-tight">Challenge Completed!</h2>
           <div className="text-xl text-slate-300">
-            Skóre: <span className="font-bold text-emerald-400">{score}</span> / {rounds.length}
+            Your Score: <span className="font-black text-emerald-400">{score}</span> / {rounds.length}
           </div>
 
           <button
             onClick={() => setGameStarted(false)}
-            className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl transition"
+            className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-2xl transition shadow-lg shadow-emerald-500/20 active:scale-[0.98]"
           >
-            Zpět do menu
+            Back to Menu
           </button>
         </div>
       </div>
     );
   }
 
-  // --- HERNÍ OBRAZOVKA (KARTA A vs. KARTA B) ---
+  // --- GAME SCREEN (CARD A vs CARD B) ---
   const currentPair = rounds[currentRoundIndex];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 md:p-8 font-sans max-w-4xl mx-auto">
-      {/* Horní lišta / Skóre */}
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 md:p-8 font-sans max-w-5xl mx-auto selection:bg-emerald-500 selection:text-slate-950">
+      {/* Top Bar */}
       <div className="flex justify-between items-center w-full py-2">
+        <div className="flex items-center space-x-2">
+          <span className="text-lg font-black tracking-tighter bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+            VALUER
+          </span>
+        </div>
+        <div className="text-xs font-bold uppercase tracking-wider text-slate-400 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">
+          Round {currentRoundIndex + 1} / {rounds.length}
+        </div>
         <button 
           onClick={() => setGameStarted(false)} 
-          className="text-xs text-slate-400 hover:text-white transition"
+          className="text-xs font-medium text-slate-400 hover:text-white transition bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800"
         >
-          ✕ Ukončit
+          Quit
         </button>
-        <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Kolo {currentRoundIndex + 1} / {rounds.length} {dailyMode && '• Denní výzva'}
-        </div>
-        <div className="text-sm font-bold text-emerald-400">
-          Skóre: {score}
-        </div>
       </div>
 
-      {/* Hlavní nadpis */}
+      {/* Title */}
       <div className="text-center my-4">
-        <h2 className="text-2xl md:text-3xl font-black tracking-tight">
-          Co stojí <span className="text-emerald-400 underline decoration-emerald-500/30">více</span>?
+        <h2 className="text-2xl md:text-4xl font-black tracking-tight">
+          Which one costs <span className="text-emerald-400 underline decoration-emerald-500/30 underline-offset-4">more</span>?
         </h2>
       </div>
 
-      {/* Kontejner se dvěma kartami (Grid: vedle sebe na desktopu, pod sebou na mobilech) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-auto">
-        {/* KARTA A */}
+      {/* Cards Container (Side by side on desktop, stacked on mobile) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 my-auto w-full max-w-4xl mx-auto">
+        {/* CARD A */}
         <div
           onClick={() => handleChoice('A')}
-          className={`relative group cursor-pointer bg-slate-900 border-2 rounded-2xl p-6 flex flex-col items-center justify-between min-h-[260px] transition-all transform hover:scale-[1.02] ${
+          className={`relative group cursor-pointer bg-slate-900/90 border-2 rounded-3xl p-6 flex flex-col items-center justify-between min-h-[320px] md:min-h-[360px] transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-xl ${
             isRevealed
               ? currentPair.correctAnswer === 'A'
                 ? 'border-emerald-500 bg-emerald-950/20'
                 : selectedChoice === 'A'
                 ? 'border-red-500 bg-red-950/20'
-                : 'border-slate-800 opacity-50'
+                : 'border-slate-800 opacity-40'
               : 'border-slate-800 hover:border-slate-700'
           }`}
         >
           {currentPair.itemA.image_url && (
-            <div className="w-full h-32 mb-4 rounded-xl overflow-hidden bg-slate-800">
+            <div className="w-full h-40 md:h-48 mb-4 rounded-2xl overflow-hidden bg-slate-800">
               <img 
                 src={currentPair.itemA.image_url} 
                 alt={currentPair.itemA.title} 
@@ -309,39 +262,38 @@ export default function App() {
               />
             </div>
           )}
-          <div className="text-center my-auto">
+          <div className="text-center my-auto px-2">
             <h3 className="text-lg md:text-xl font-bold text-slate-100">{currentPair.itemA.title}</h3>
           </div>
 
-          {/* Odhalená cena */}
-          <div className="mt-4 pt-4 border-t border-slate-800 w-full text-center">
+          <div className="mt-4 pt-4 border-t border-slate-800/80 w-full text-center">
             {isRevealed ? (
-              <span className="text-xl font-black text-emerald-400 animate-fade-in">
-                {currentPair.itemA.price.toLocaleString()} Kč
+              <span className="text-2xl font-black text-emerald-400 animate-fade-in">
+                {currentPair.itemA.price.toLocaleString()} CZK
               </span>
             ) : (
-              <span className="text-xs uppercase tracking-widest text-slate-500 font-semibold">
-                Klikni pro výběr
+              <span className="text-xs uppercase tracking-widest text-slate-500 font-bold">
+                Tap to select
               </span>
             )}
           </div>
         </div>
 
-        {/* KARTA B */}
+        {/* CARD B */}
         <div
           onClick={() => handleChoice('B')}
-          className={`relative group cursor-pointer bg-slate-900 border-2 rounded-2xl p-6 flex flex-col items-center justify-between min-h-[260px] transition-all transform hover:scale-[1.02] ${
+          className={`relative group cursor-pointer bg-slate-900/90 border-2 rounded-3xl p-6 flex flex-col items-center justify-between min-h-[320px] md:min-h-[360px] transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-xl ${
             isRevealed
               ? currentPair.correctAnswer === 'B'
                 ? 'border-emerald-500 bg-emerald-950/20'
                 : selectedChoice === 'B'
                 ? 'border-red-500 bg-red-950/20'
-                : 'border-slate-800 opacity-50'
+                : 'border-slate-800 opacity-40'
               : 'border-slate-800 hover:border-slate-700'
           }`}
         >
           {currentPair.itemB.image_url && (
-            <div className="w-full h-32 mb-4 rounded-xl overflow-hidden bg-slate-800">
+            <div className="w-full h-40 md:h-48 mb-4 rounded-2xl overflow-hidden bg-slate-800">
               <img 
                 src={currentPair.itemB.image_url} 
                 alt={currentPair.itemB.title} 
@@ -349,28 +301,27 @@ export default function App() {
               />
             </div>
           )}
-          <div className="text-center my-auto">
+          <div className="text-center my-auto px-2">
             <h3 className="text-lg md:text-xl font-bold text-slate-100">{currentPair.itemB.title}</h3>
           </div>
 
-          {/* Odhalená cena */}
-          <div className="mt-4 pt-4 border-t border-slate-800 w-full text-center">
+          <div className="mt-4 pt-4 border-t border-slate-800/80 w-full text-center">
             {isRevealed ? (
-              <span className="text-xl font-black text-emerald-400 animate-fade-in">
-                {currentPair.itemB.price.toLocaleString()} Kč
+              <span className="text-2xl font-black text-emerald-400 animate-fade-in">
+                {currentPair.itemB.price.toLocaleString()} CZK
               </span>
             ) : (
-              <span className="text-xs uppercase tracking-widest text-slate-500 font-semibold">
-                Klikni pro výběr
+              <span className="text-xs uppercase tracking-widest text-slate-500 font-bold">
+                Tap to select
               </span>
             )}
           </div>
         </div>
       </div>
 
-      {/* Spodní info / stav */}
-      <div className="text-center py-4 text-xs text-slate-500">
-        {isRevealed ? 'Vyhodnocuji kolo...' : 'Zvol kartu, která má vyšší hodnotu'}
+      {/* Footer hint */}
+      <div className="text-center py-4 text-xs font-medium text-slate-500">
+        {isRevealed ? 'Evaluating round...' : 'Select the card with the higher value'}
       </div>
     </div>
   );
