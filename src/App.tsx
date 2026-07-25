@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap } from 'lucide-react';
+import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap, Sparkles } from 'lucide-react';
 import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
@@ -10,7 +10,7 @@ const EXCHANGE_RATES = {
   GBP: { rate: 0.79, symbol: '£', name: 'GBP (£)' },
 };
 
-// Náhradní pool otázek (zde budeme později tahat z DB)
+// Náhradní pool otázek (zde budeme brzy tahat z databáze)
 const ALL_QUESTIONS = [
   {
     id: 1,
@@ -67,7 +67,6 @@ export default function App() {
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [shareNotification, setShareNotification] = useState(false);
 
-  // Pro endless mode si držíme náhodně vygenerované/zamíchané otázky
   const [endlessQuestions, setEndlessQuestions] = useState(ALL_QUESTIONS);
 
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
@@ -84,7 +83,7 @@ export default function App() {
       .catch(() => console.log('IP detection failed, defaulting to US'));
   }, []);
 
-  // Check Auth & Daily Played Status (pouze pro Daily mód)
+  // Check Auth & Daily Played Status
   useEffect(() => {
     const checkUserAndDailyStatus = async (currentUser: any) => {
       setUser(currentUser);
@@ -116,24 +115,21 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, [gameMode]);
 
-  // Přepínání herních módů
   const switchMode = (mode: 'daily' | 'endless') => {
     setGameMode(mode);
     setScore(0);
     setCurrentRound(0);
     setGameState('playing');
     if (mode === 'endless') {
-      // Zamícháme otázky pro endless
       setEndlessQuestions([...ALL_QUESTIONS].sort(() => Math.random() - 0.5));
     }
   };
 
-  // Fetch Leaderboard (podle typu žebříčku - daily vs endless)
   const fetchLeaderboard = async (type: 'daily' | 'endless' = 'daily') => {
     setLoadingLeaderboard(true);
     setLeaderboardType(type);
 
-    const tableName = type === 'daily' ? 'stats' : 'stats_endless'; // Předpokládá vytvoření druhé tabulky, případně lze upravit
+    const tableName = type === 'daily' ? 'stats' : 'stats_endless';
 
     const { data: allStats, error } = await supabase
       .from(tableName)
@@ -141,7 +137,6 @@ export default function App() {
 
     if (error) {
       console.error('Error fetching leaderboard data:', error);
-      // Pokud tabulka stats_endless ještě neexistuje, zobrazíme prázdno namísto pádu
       setCountryLeaders([]);
       setLoadingLeaderboard(false);
       return;
@@ -176,7 +171,6 @@ export default function App() {
     setIsLeaderboardOpen(true);
   };
 
-  // Ukládání výsledků po skončení hry
   useEffect(() => {
     if (gameState === 'ended' && user) {
       const saveStats = async () => {
@@ -248,7 +242,6 @@ export default function App() {
       setScore(score + 1);
       setGameState('revealed');
     } else {
-      // V endless módu špatná odpověď hned ukončuje hru! V daily módu pokračujeme do konce otázek.
       if (gameMode === 'endless') {
         setGameState('ended');
       } else {
@@ -266,7 +259,6 @@ export default function App() {
         setGameState('ended');
       }
     } else {
-      // Endless jede dál na další otázku
       setCurrentRound(currentRound + 1);
       setGameState('playing');
     }
@@ -325,7 +317,6 @@ export default function App() {
           </div>
           
           <div className="flex items-center flex-wrap justify-center gap-2 lg:gap-3">
-            {/* Tlačítko Buy me a coffee - odkaz zatím prázdný, doplň až budeš mít */}
             <a
               href="https://buymeacoffee.com/TVOJE_JMENO" 
               target="_blank"
@@ -378,7 +369,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* State: Already Played Today (jen pro Daily) */}
+        {/* State: Already Played Today */}
         {gameMode === 'daily' && gameState === 'already_played' ? (
           <main className="flex-1 flex flex-col justify-center items-center text-center gap-6 my-8 max-w-md mx-auto w-full">
             <div className="w-20 h-20 bg-amber-950/60 border border-amber-600/50 rounded-full flex items-center justify-center shadow-2xl">
@@ -410,7 +401,7 @@ export default function App() {
         ) : gameState !== 'ended' ? (
           /* Main Game Screen */
           <main className="flex-1 flex flex-col justify-center gap-6 my-6 lg:my-10">
-            <div className="flex justify-between items-center max-w-xl mx-w-xl mx-auto w-full text-xs lg:text-sm text-slate-400 font-semibold tracking-wider">
+            <div className="flex justify-between items-center max-w-xl mx-auto w-full text-xs lg:text-sm text-slate-400 font-semibold tracking-wider">
               <span>{gameMode === 'daily' ? `ROUND ${currentRound + 1} OF ${ALL_QUESTIONS.length}` : `ENDLESS MODE`}</span>
               <span className="text-emerald-400 font-bold">SCORE: {score}</span>
             </div>
@@ -504,6 +495,25 @@ export default function App() {
               </p>
             )}
 
+            {/* Buy Me a Coffee Callout with Topic Request */}
+            <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 border border-amber-500/40 rounded-2xl p-4 w-full text-left flex flex-col gap-2.5 shadow-lg">
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                <Sparkles className="w-4 h-4" />
+                <span>Navrhni další tematický okruh!</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Kup kávu ☕, do poznámky připiš svůj oblíbený okruh (např. technologie, fast food, auta) a já ho zařadím do hry i s tvým jménem!
+              </p>
+              <a
+                href="https://buymeacoffee.com/TVOJE_JMENO"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-center"
+              >
+                <Coffee className="w-4 h-4" /> Podpořit a vybrat téma
+              </a>
+            </div>
+
             <div className="flex flex-col gap-3 w-full">
               <button 
                 onClick={handleShare}
@@ -543,7 +553,6 @@ export default function App() {
               <h2 className="text-xl font-black text-amber-400">COUNTRY LEADERBOARD</h2>
             </div>
 
-            {/* Přepínání žebříčků v modalu */}
             <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 mb-6">
               <button 
                 onClick={() => fetchLeaderboard('daily')}
