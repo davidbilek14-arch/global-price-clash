@@ -51,7 +51,7 @@ export default function App() {
 
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
-  // Robustní načítání všech řádků ze Supabase po dávkách (obejde limit 1000 záznamů)
+  // Načtení všech řádků ze Supabase po dávkách (obejde limit 1000 záznamů)
   const fetchAllRows = async (tableName: string) => {
     let allData: any[] = [];
     let page = 0;
@@ -110,23 +110,45 @@ export default function App() {
         funFact: q.fun_fact
       }));
 
-      if (mode === 'endless' && currentUser) {
-        const { data: seenData } = await supabase
-          .from('user_seen_cards')
-          .select('question_id')
-          .eq('user_id', currentUser.id);
+      if (currentUser) {
+        // --- PRO PŘIHLÁŠENÉ UŽIVATELE (z databáze Supabase) ---
+        if (mode === 'endless') {
+          const { data: seenData } = await supabase
+            .from('user_seen_cards')
+            .select('question_id')
+            .eq('user_id', currentUser.id);
 
-        const seenIds = seenData ? seenData.map((s: any) => s.question_id) : [];
+          const seenIds = seenData ? seenData.map((s: any) => s.question_id) : [];
+          let nevidene = formatted.filter((karta: any) => !seenIds.includes(karta.id));
+
+          if (nevidene.length === 0) {
+            await supabase.from('user_seen_cards').delete().eq('user_id', currentUser.id);
+            nevidene = formatted;
+          }
+
+          setQuestions([...nevidene].sort(() => Math.random() - 0.5));
+        } else {
+          setQuestions([...formatted].sort(() => Math.random() - 0.5));
+        }
+      } else {
+        // --- PRO NEPŘIHLÁŠENÉ UŽIVATELE (z localStorage v prohlížeči) ---
+        const storageKeySeen = `valuer_seen_cards_${mode}`;
+        let seenIds: number[] = [];
+        try {
+          const saved = localStorage.getItem(storageKeySeen);
+          if (saved) seenIds = JSON.parse(saved);
+        } catch (e) {
+          seenIds = [];
+        }
+
         let nevidene = formatted.filter((karta: any) => !seenIds.includes(karta.id));
 
         if (nevidene.length === 0) {
-          await supabase.from('user_seen_cards').delete().eq('user_id', currentUser.id);
+          localStorage.removeItem(storageKeySeen);
           nevidene = formatted;
         }
 
         setQuestions([...nevidene].sort(() => Math.random() - 0.5));
-      } else {
-        setQuestions([...formatted].sort(() => Math.random() - 0.5));
       }
     } else {
       setQuestions(FALLBACK_QUESTIONS);
@@ -296,11 +318,26 @@ export default function App() {
 
     const isCorrect = isHigher ? q.itemB.priceUSD >= q.itemA.priceUSD : q.itemB.priceUSD <= q.itemA.priceUSD;
 
-    if (gameMode === 'endless' && user && q.id) {
-      await supabase.from('user_seen_cards').upsert({
-        user_id: user.id,
-        question_id: q.id
-      }, { onConflict: 'user_id,question_id' });
+    // Uložení viděné karty
+    if (user) {
+      if (gameMode === 'endless' && q.id) {
+        await supabase.from('user_seen_cards').upsert({
+          user_id: user.id,
+          question_id: q.id
+        }, { onConflict: 'user_id,question_id' });
+      }
+    } else {
+      const storageKeySeen = `valuer_seen_cards_${gameMode}`;
+      try {
+        const saved = localStorage.getItem(storageKeySeen);
+        let seenIds: number[] = saved ? JSON.parse(saved) : [];
+        if (q.id && !seenIds.includes(q.id)) {
+          seenIds.push(q.id);
+          localStorage.setItem(storageKeySeen, JSON.stringify(seenIds));
+        }
+      } catch (e) {
+        console.error('LocalStorage error:', e);
+      }
     }
 
     setLastAnswerCorrect(isCorrect);
