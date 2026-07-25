@@ -77,10 +77,12 @@ export default function App() {
 
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
-  // Fetch questions from Supabase table 'questions'
+  // Fetch questions from Supabase table based on gameMode ('questions' or 'questions_endless') with localStorage memory
   useEffect(() => {
     const fetchQuestions = async () => {
-      const { data, error } = await supabase.from('questions').select('*');
+      const tableName = gameMode === 'endless' ? 'questions_endless' : 'questions';
+      const { data, error } = await supabase.from(tableName).select('*');
+      
       if (!error && data && data.length > 0) {
         const formatted = data.map((q: any) => ({
           id: q.id,
@@ -88,11 +90,24 @@ export default function App() {
           itemB: { name: q.item_b_name, location: q.item_b_location, priceUSD: Number(q.item_b_price) },
           funFact: q.fun_fact
         }));
-        setQuestions(formatted);
+
+        if (gameMode === 'endless') {
+          const videneIdCka = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
+          const nevidene = formatted.filter((karta: any) => !videneIdCka.includes(karta.id));
+          
+          if (nevidene.length === 0) {
+            localStorage.removeItem('hrac_videne_karty');
+            setQuestions([...formatted].sort(() => Math.random() - 0.5));
+          } else {
+            setQuestions([...nevidene].sort(() => Math.random() - 0.5));
+          }
+        } else {
+          setQuestions(formatted);
+        }
       }
     };
     fetchQuestions();
-  }, []);
+  }, [gameMode]);
 
   // Auto-detect country via ipwho.is
   useEffect(() => {
@@ -166,9 +181,6 @@ export default function App() {
     setGameMode(mode);
     setScore(0);
     setCurrentRound(0);
-    if (mode === 'endless') {
-      setQuestions([...questions].sort(() => Math.random() - 0.5));
-    }
   };
 
   const fetchLeaderboard = async (type: 'daily' | 'endless' = 'daily') => {
@@ -293,6 +305,15 @@ export default function App() {
   const handleGuess = (isHigher: boolean) => {
     const q = questions[currentRound % questions.length];
     const isCorrect = isHigher ? q.itemB.priceUSD >= q.itemA.priceUSD : q.itemB.priceUSD <= q.itemA.priceUSD;
+
+    // Save seen card to localStorage in endless mode
+    if (gameMode === 'endless' && q && q.id) {
+      const videneIdCka = JSON.parse(localStorage.getItem('hrac_videne_karty') || '[]');
+      if (!videneIdCka.includes(q.id)) {
+        videneIdCka.push(q.id);
+        localStorage.setItem('hrac_videne_karty', JSON.stringify(videneIdCka));
+      }
+    }
 
     setLastAnswerCorrect(isCorrect);
     if (isCorrect) {
@@ -697,49 +718,44 @@ export default function App() {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2 mb-4">
-              <HelpCircle className="w-6 h-6 text-emerald-400" />
-              <h2 className="text-xl font-black text-emerald-400">HOW TO PLAY</h2>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-emerald-950 border border-emerald-700/50 rounded-xl flex items-center justify-center text-emerald-400">
+                <HelpCircle className="w-5 h-5" />
+              </div>
+              <h2 className="text-xl font-black">How To Play</h2>
             </div>
 
             <div className="space-y-4 text-sm text-slate-300 leading-relaxed">
               <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-                <h3 className="font-bold text-white mb-1">🌍 The Core Concept</h3>
-                <p className="text-xs text-slate-400">
-                  Compare everyday items, food, technology, or services from different cities around the world and guess whether item B is <b>HIGHER ▲</b> or <b>LOWER ▼</b> in price compared to item A.
-                </p>
+                <p className="font-bold text-emerald-400 mb-1">🎯 The Objective</p>
+                <p className="text-xs text-slate-400">Compare item B with item A and guess whether its global price is higher or lower.</p>
               </div>
 
               <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-                <h3 className="font-bold text-white mb-1">📅 Daily vs Endless Mode</h3>
-                <ul className="text-xs text-slate-400 space-y-1.5 list-disc pl-4">
-                  <li><b>Daily Mode:</b> Fixed set of rounds refreshed every day. Can be played once daily.</li>
-                  <li><b>Endless Mode:</b> A continuous challenge to test your pricing intuition until you make a mistake. Can also be played once per day.</li>
-                </ul>
+                <p className="font-bold text-amber-400 mb-1">📅 Daily vs Endless</p>
+                <p className="text-xs text-slate-400"><b>Daily</b> gives you 5 curated rounds per day. <b>Endless</b> keeps going using our 250+ item database until you make a mistake!</p>
               </div>
 
               <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-                <h3 className="font-bold text-white mb-1">🏆 Country Leaderboard</h3>
-                <p className="text-xs text-slate-400">
-                  Sign in to record your scores and compete for your country on the global leaderboard!
-                </p>
+                <p className="font-bold text-sky-400 mb-1">🌍 Country Leaderboards</p>
+                <p className="text-xs text-slate-400">Sign in to automatically represent your country and compete on the global scoreboards.</p>
               </div>
             </div>
 
             <button
               onClick={() => setIsHelpOpen(false)}
-              className="mt-6 w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-3 rounded-xl text-sm transition cursor-pointer"
+              className="mt-6 w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-3 rounded-xl text-sm transition cursor-pointer text-white shadow-lg"
             >
-              Got it!
+              Got it, let's play!
             </button>
           </div>
         </div>
       )}
 
-      {/* Modal - Country Leaderboard */}
+      {/* Modal - Leaderboard */}
       {isLeaderboardOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
+          <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative max-h-[85vh] flex flex-col">
             <button 
               onClick={() => setIsLeaderboardOpen(false)}
               className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer"
@@ -747,12 +763,17 @@ export default function App() {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center justify-center gap-2 mb-4">
-              <Globe className="w-7 h-7 text-amber-400" />
-              <h2 className="text-xl font-black text-amber-400">COUNTRY LEADERBOARD</h2>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-amber-950 border border-amber-700/50 rounded-xl flex items-center justify-center text-amber-400">
+                <Globe className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-xl font-black">Global Rankings</h2>
+                <p className="text-xs text-slate-400">Country vs Country competition</p>
+              </div>
             </div>
 
-            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 mb-6">
+            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 mb-4">
               <button 
                 onClick={() => fetchLeaderboard('daily')}
                 className={`flex-1 text-xs py-2 rounded-lg font-bold transition cursor-pointer ${leaderboardType === 'daily' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
@@ -767,37 +788,38 @@ export default function App() {
               </button>
             </div>
 
-            {loadingLeaderboard ? (
-              <div className="text-center py-8 text-slate-400">Loading rankings...</div>
-            ) : countryLeaders.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm">
-                No data recorded for this mode yet.
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-                {countryLeaders.map((country, index) => (
-                  <div 
-                    key={country.country_code || index}
-                    className={`flex items-center justify-between p-3.5 rounded-2xl border ${
-                      index === 0 
-                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' 
-                        : 'bg-slate-800/50 border-slate-800 text-slate-200'
-                    }`}
-                  >
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+              {loadingLeaderboard ? (
+                <div className="text-center py-10 text-slate-500 text-sm">Loading country rankings...</div>
+              ) : countryLeaders.length === 0 ? (
+                <div className="text-center py-10 text-slate-500 text-sm">No leaderboard data found yet.</div>
+              ) : (
+                countryLeaders.map((item, index) => (
+                  <div key={item.country_code} className={`flex items-center justify-between p-3.5 rounded-2xl border ${item.country_code === userCountry ? 'bg-emerald-950/30 border-emerald-700/50' : 'bg-slate-950 border-slate-800/80'}`}>
                     <div className="flex items-center gap-3">
-                      <span className="font-bold w-6 text-center text-slate-400">
+                      <span className={`w-6 text-center font-black text-xs ${index === 0 ? 'text-amber-400 text-sm' : index === 1 ? 'text-slate-300' : index === 2 ? 'text-amber-600' : 'text-slate-600'}`}>
                         {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
                       </span>
-                      <span className="font-semibold">{getCountryDisplay(country.country_code)}</span>
+                      <div>
+                        <p className="font-bold text-sm">{getCountryDisplay(item.country_code)}</p>
+                        <p className="text-[10px] text-slate-400">{item.player_count} player{item.player_count === 1 ? '' : 's'}</p>
+                      </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-black text-base text-amber-400">{country.total_score} pts</div>
-                      <div className="text-xs text-slate-400">{country.player_count} {country.player_count === 1 ? 'player' : 'players'}</div>
+                      <span className="font-black text-sm text-emerald-400">{item.total_score}</span>
+                      <p className="text-[10px] text-slate-500">total pts</p>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
+
+            <button
+              onClick={() => setIsLeaderboardOpen(false)}
+              className="mt-4 w-full bg-slate-800 hover:bg-slate-700 font-bold py-3 rounded-xl text-sm transition cursor-pointer border border-slate-700"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
