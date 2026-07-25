@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap, Sparkles, HelpCircle, User, Percent, RotateCcw } from 'lucide-react';
-import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
   USD: { rate: 1, symbol: '$', name: 'USD ($)' },
@@ -49,9 +48,15 @@ export default function App() {
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [shareNotification, setShareNotification] = useState(false);
 
+  // Auth form states
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [authMessage, setAuthMessage] = useState('');
+
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
-  // Načtení všech řádků ze Supabase po dávkách (obejde limit 1000 záznamů)
+  // Načtení všech řádků po dávkách (obejde limit 1000 záznamů v Supabase)
   const fetchAllRows = async (tableName: string) => {
     let allData: any[] = [];
     let page = 0;
@@ -111,7 +116,6 @@ export default function App() {
       }));
 
       if (currentUser) {
-        // --- PRO PŘIHLÁŠENÉ UŽIVATELE (z databáze Supabase) ---
         if (mode === 'endless') {
           const { data: seenData } = await supabase
             .from('user_seen_cards')
@@ -131,7 +135,6 @@ export default function App() {
           setQuestions([...formatted].sort(() => Math.random() - 0.5));
         }
       } else {
-        // --- PRO NEPŘIHLÁŠENÉ UŽIVATELE (z localStorage v prohlížeči) ---
         const storageKeySeen = `valuer_seen_cards_${mode}`;
         let seenIds: number[] = [];
         try {
@@ -318,7 +321,6 @@ export default function App() {
 
     const isCorrect = isHigher ? q.itemB.priceUSD >= q.itemA.priceUSD : q.itemB.priceUSD <= q.itemA.priceUSD;
 
-    // Uložení viděné karty
     if (user) {
       if (gameMode === 'endless' && q.id) {
         await supabase.from('user_seen_cards').upsert({
@@ -376,6 +378,26 @@ export default function App() {
     navigator.clipboard.writeText(text);
     setShareNotification(true);
     setTimeout(() => setShareNotification(false), 2500);
+  };
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthMessage('');
+    if (authMode === 'signin') {
+      const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
+      if (error) setAuthMessage(error.message);
+      else {
+        setIsAuthOpen(false);
+        setAuthEmail('');
+        setAuthPassword('');
+      }
+    } else {
+      const { error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
+      if (error) setAuthMessage(error.message);
+      else {
+        setAuthMessage('Registration successful! Check your email to confirm or sign in now.');
+      }
+    }
   };
 
   const q = questions[currentRound] || questions[0];
@@ -589,17 +611,161 @@ export default function App() {
           </main>
         )}
 
-        {/* Footer */}
-        <footer className="text-center text-xs text-slate-600 pt-4 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-center gap-3">
+        {/* Footer s Buy Me a Coffee / Podporou */}
+        <footer className="text-center text-xs text-slate-600 pt-4 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-between gap-3">
           <span>Valuer © 2026 • Everyday Global Price Clash</span>
+          <a 
+            href="https://buymeacoffee.com" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="flex items-center gap-1.5 text-slate-400 hover:text-amber-400 transition"
+          >
+            <Coffee className="w-3.5 h-3.5 text-amber-400" />
+            <span>Buy me a coffee</span>
+          </a>
         </footer>
       </div>
 
-      {/* Modals */}
-      {isProfileOpen && <AuthModal isOpen={false} onClose={() => setIsProfileOpen(false)} />}
-      {isHelpOpen && <AuthModal isOpen={false} onClose={() => setIsHelpOpen(false)} />}
-      {isLeaderboardOpen && <AuthModal isOpen={false} onClose={() => setIsLeaderboardOpen(false)} />}
-      <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
+      {/* Auth Modal */}
+      {isAuthOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 relative shadow-2xl">
+            <button onClick={() => setIsAuthOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white p-2">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-xl font-black text-emerald-400 mb-4">{authMode === 'signin' ? 'Sign In' : 'Create Account'}</h3>
+            <form onSubmit={handleAuthSubmit} className="flex flex-col gap-4">
+              <input 
+                type="email" 
+                placeholder="Email address" 
+                value={authEmail} 
+                onChange={(e) => setAuthEmail(e.target.value)} 
+                required
+                className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500"
+              />
+              <input 
+                type="password" 
+                placeholder="Password" 
+                value={authPassword} 
+                onChange={(e) => setAuthPassword(e.target.value)} 
+                required
+                className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500"
+              />
+              {authMessage && <p className="text-xs text-amber-400">{authMessage}</p>}
+              <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 font-bold py-3 rounded-xl transition cursor-pointer text-sm">
+                {authMode === 'signin' ? 'Sign In' : 'Sign Up'}
+              </button>
+            </form>
+            <div className="mt-4 text-center text-xs text-slate-400">
+              {authMode === 'signin' ? (
+                <p>Don't have an account? <button onClick={() => setAuthMode('signup')} className="text-emerald-400 font-bold underline cursor-pointer">Sign up</button></p>
+              ) : (
+                <p>Already have an account? <button onClick={() => setAuthMode('signin')} className="text-emerald-400 font-bold underline cursor-pointer">Sign in</button></p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Leaderboard Modal */}
+      {isLeaderboardOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 relative shadow-2xl flex flex-col max-h-[80vh]">
+            <button onClick={() => setIsLeaderboardOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white p-2">
+              <X className="w-5 h-5" />
+            </button>
+            <div className="flex items-center justify-between mb-4 pr-8">
+              <h3 className="text-xl font-black text-amber-400 flex items-center gap-2"><Globe className="w-5 h-5" /> Leaderboard</h3>
+              <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
+                <button 
+                  onClick={() => fetchLeaderboard('daily')}
+                  className={`text-xs px-3 py-1 rounded-md font-bold transition cursor-pointer ${leaderboardType === 'daily' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
+                >
+                  Daily
+                </button>
+                <button 
+                  onClick={() => fetchLeaderboard('endless')}
+                  className={`text-xs px-3 py-1 rounded-md font-bold transition cursor-pointer ${leaderboardType === 'endless' ? 'bg-amber-600 text-white' : 'text-slate-400'}`}
+                >
+                  Endless
+                </button>
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto pr-1 space-y-2">
+              {loadingLeaderboard ? (
+                <div className="text-center py-10 text-slate-500">Loading leaderboard...</div>
+              ) : countryLeaders.length === 0 ? (
+                <div className="text-center py-10 text-slate-500">No records found yet.</div>
+              ) : (
+                countryLeaders.map((item, idx) => (
+                  <div key={item.country_code} className="flex items-center justify-between bg-slate-950/60 border border-slate-800/80 px-4 py-3 rounded-xl">
+                    <div className="flex items-center gap-3">
+                      <span className="font-black text-slate-500 w-6">#{idx + 1}</span>
+                      <span className="font-bold">{item.country_code}</span>
+                    </div>
+                    <div className="flex items-center gap-6 text-xs text-slate-400">
+                      <span>{item.player_count} players</span>
+                      <span className="font-black text-emerald-400 text-sm">{item.total_score} pts</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Help Modal */}
+      {isHelpOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 relative shadow-2xl">
+            <button onClick={() => setIsHelpOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white p-2">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-xl font-black text-emerald-400 mb-3">How to Play</h3>
+            <div className="space-y-3 text-sm text-slate-300 leading-relaxed">
+              <p><b>1. Higher or Lower?</b> Look at the price of Item A and guess whether Item B costs more (Higher) or less (Lower).</p>
+              <p><b>2. Daily Mode:</b> A fresh set of questions every day. Limited to one run per day.</p>
+              <p><b>3. Endless Mode:</b> Test your intuition continuously with a massive pool of cards. Cards won't repeat until you've seen them all!</p>
+            </div>
+            <button onClick={() => setIsHelpOpen(false)} className="w-full mt-6 bg-slate-800 hover:bg-slate-700 font-bold py-3 rounded-xl transition cursor-pointer text-sm">
+              Got it!
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Profile Modal */}
+      {isProfileOpen && user && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 relative shadow-2xl">
+            <button onClick={() => setIsProfileOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white p-2">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-xl font-black text-emerald-400 mb-2">My Profile</h3>
+            <p className="text-xs text-slate-400 mb-6 truncate">{user.email}</p>
+            
+            <div className="space-y-4">
+              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Daily Stats</h4>
+                <div className="flex justify-between text-sm">
+                  <span>High Score: <b className="text-emerald-400">{dailyStats?.high_score || 0}</b></span>
+                  <span>Total Games: <b className="text-white">{dailyStats?.total_games || 0}</b></span>
+                </div>
+              </div>
+
+              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Endless Stats</h4>
+                <div className="flex justify-between text-sm">
+                  <span>High Score: <b className="text-amber-400">{endlessStats?.high_score || 0}</b></span>
+                  <span>Total Runs: <b className="text-white">{endlessStats?.total_games || 0}</b></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
