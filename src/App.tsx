@@ -55,7 +55,6 @@ export default function App() {
         }
         setAllItems(data);
         
-        // Start first game right away
         initNewGame(data);
         fetchLeaderboard();
       } catch (err: any) {
@@ -124,9 +123,10 @@ export default function App() {
 
     const currentPair = rounds[currentRoundIndex];
     const isCorrect = choice === currentPair.correctAnswer;
+    const newScore = score + (isCorrect ? 1 : 0);
 
     if (isCorrect) {
-      setScore((prev) => prev + 1);
+      setScore(newScore);
     }
 
     setTimeout(() => {
@@ -136,9 +136,8 @@ export default function App() {
         setIsRevealed(false);
       } else {
         setGameOver(true);
-        // Save score if user is logged in
         if (user) {
-          saveScore(score + (isCorrect ? 1 : 0));
+          saveScore(newScore);
         }
       }
     }, 2000);
@@ -151,7 +150,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 w-screen h-screen bg-slate-950 text-white flex items-center justify-center font-sans">
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center font-sans">
         <div className="text-xl animate-pulse text-emerald-400 font-medium">Loading Valuer...</div>
       </div>
     );
@@ -159,7 +158,7 @@ export default function App() {
 
   if (error) {
     return (
-      <div className="fixed inset-0 w-screen h-screen bg-slate-950 text-white flex items-center justify-center p-4 font-sans">
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4 font-sans">
         <div className="bg-red-950/50 border border-red-500/50 p-6 rounded-2xl max-w-md text-center shadow-2xl">
           <h2 className="text-lg font-bold mb-2 text-red-400">Error</h2>
           <p className="text-sm text-red-200">{error}</p>
@@ -169,12 +168,12 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-slate-950 text-white flex flex-col justify-between p-4 md:p-6 font-sans max-w-6xl mx-auto selection:bg-emerald-500 selection:text-slate-950">
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 md:p-8 font-sans max-w-6xl mx-auto selection:bg-emerald-500 selection:text-slate-950">
       
-      {/* TOP HEADER: Branding, User / Auth, Leaderboard preview */}
-      <header className="flex flex-col md:flex-row justify-between items-center pb-4 border-b border-slate-800 gap-4">
+      {/* HEADER */}
+      <header className="flex flex-col md:flex-row justify-between items-center pb-6 border-b border-slate-800 gap-4">
         <div className="flex items-center space-x-3">
-          <h1 className="text-2xl font-black tracking-tighter bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+          <h1 className="text-3xl font-black tracking-tighter bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
             VALUER
           </h1>
           <span className="text-xs text-slate-400 bg-slate-900 px-3 py-1 rounded-full border border-slate-800">
@@ -182,7 +181,6 @@ export default function App() {
           </span>
         </div>
 
-        {/* Leaderboard snippet / Auth */}
         <div className="flex items-center gap-4 text-xs">
           {leaderboard.length > 0 && (
             <div className="hidden lg:flex items-center gap-2 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-slate-800">
@@ -203,15 +201,15 @@ export default function App() {
                   placeholder="your@email.com"
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
-                  className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-white focus:outline-none focus:border-emerald-500"
+                  className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-emerald-500"
                   required
                 />
-                <button type="submit" className="bg-emerald-500 text-slate-950 font-bold px-3 py-1 rounded-lg hover:bg-emerald-400 transition">
+                <button type="submit" className="bg-emerald-500 text-slate-950 font-bold px-3 py-1.5 rounded-lg hover:bg-emerald-400 transition">
                   Sign In
                 </button>
               </form>
             ) : (
-              <span className="text-emerald-400 bg-emerald-950/30 px-3 py-1 rounded-xl border border-emerald-500/30">
+              <span className="text-emerald-400 bg-emerald-950/30 px-3 py-1.5 rounded-xl border border-emerald-500/30">
                 Check email for login link!
               </span>
             )
@@ -219,11 +217,11 @@ export default function App() {
         </div>
       </header>
 
-      {/* MAIN GAME AREA */}
-      <main className="my-auto py-6 flex flex-col items-center w-full">
+      {/* MAIN CONTENT */}
+      <main className="my-auto py-8 flex flex-col items-center w-full">
         {gameOver ? (
-          <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 p-8 rounded-3xl text-center space-y-6 shadow-2xl backdrop-blur-md animate-fade-in">
-            <h2 className="text-3xl font-black tracking-tight">Round Completed!</h2>
+          <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 p-8 rounded-3xl text-center space-y-6 shadow-2xl backdrop-blur-md">
+            <h2 className="text-3xl font-black tracking-tight">Game Completed!</h2>
             <div className="text-xl text-slate-300">
               Your Score: <span className="font-black text-emerald-400">{score}</span> / {rounds.length}
             </div>
@@ -237,22 +235,20 @@ export default function App() {
           </div>
         ) : rounds.length > 0 && rounds[currentRoundIndex] ? (
           <div className="w-full max-w-4xl flex flex-col items-center">
-            {/* Round info bar */}
-            <div className="flex justify-between w-full mb-4 px-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+            <div className="flex justify-between w-full mb-6 px-2 text-xs font-bold uppercase tracking-wider text-slate-400">
               <span>Round {currentRoundIndex + 1} / {rounds.length}</span>
               <span>Score: <strong className="text-emerald-400">{score}</strong></span>
             </div>
 
-            <h2 className="text-2xl md:text-3xl font-black tracking-tight mb-6 text-center">
+            <h2 className="text-3xl md:text-4xl font-black tracking-tight mb-8 text-center">
               Which one costs <span className="text-emerald-400 underline decoration-emerald-500/30 underline-offset-4">more</span>?
             </h2>
 
-            {/* Cards Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 w-full">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
               {/* CARD A */}
               <div
                 onClick={() => handleChoice('A')}
-                className={`relative group cursor-pointer bg-slate-900/90 border-2 rounded-3xl p-6 flex flex-col items-center justify-between min-h-[320px] md:min-h-[360px] transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-xl ${
+                className={`relative group cursor-pointer bg-slate-900/90 border-2 rounded-3xl p-6 flex flex-col items-center justify-between min-h-[360px] transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-xl ${
                   isRevealed
                     ? rounds[currentRoundIndex].correctAnswer === 'A'
                       ? 'border-emerald-500 bg-emerald-950/20'
@@ -263,7 +259,7 @@ export default function App() {
                 }`}
               >
                 {rounds[currentRoundIndex].itemA.image_url && (
-                  <div className="w-full h-40 md:h-48 mb-4 rounded-2xl overflow-hidden bg-slate-800">
+                  <div className="w-full h-48 mb-4 rounded-2xl overflow-hidden bg-slate-800">
                     <img 
                       src={rounds[currentRoundIndex].itemA.image_url} 
                       alt={rounds[currentRoundIndex].itemA.title} 
@@ -272,7 +268,7 @@ export default function App() {
                   </div>
                 )}
                 <div className="text-center my-auto px-2">
-                  <h3 className="text-lg md:text-xl font-bold text-slate-100">{rounds[currentRoundIndex].itemA.title}</h3>
+                  <h3 className="text-xl font-bold text-slate-100">{rounds[currentRoundIndex].itemA.title}</h3>
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-slate-800/80 w-full text-center">
@@ -291,7 +287,7 @@ export default function App() {
               {/* CARD B */}
               <div
                 onClick={() => handleChoice('B')}
-                className={`relative group cursor-pointer bg-slate-900/90 border-2 rounded-3xl p-6 flex flex-col items-center justify-between min-h-[320px] md:min-h-[360px] transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-xl ${
+                className={`relative group cursor-pointer bg-slate-900/90 border-2 rounded-3xl p-6 flex flex-col items-center justify-between min-h-[360px] transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-xl ${
                   isRevealed
                     ? rounds[currentRoundIndex].correctAnswer === 'B'
                       ? 'border-emerald-500 bg-emerald-950/20'
@@ -302,7 +298,7 @@ export default function App() {
                 }`}
               >
                 {rounds[currentRoundIndex].itemB.image_url && (
-                  <div className="w-full h-40 md:h-48 mb-4 rounded-2xl overflow-hidden bg-slate-800">
+                  <div className="w-full h-48 mb-4 rounded-2xl overflow-hidden bg-slate-800">
                     <img 
                       src={rounds[currentRoundIndex].itemB.image_url} 
                       alt={rounds[currentRoundIndex].itemB.title} 
@@ -311,7 +307,7 @@ export default function App() {
                   </div>
                 )}
                 <div className="text-center my-auto px-2">
-                  <h3 className="text-lg md:text-xl font-bold text-slate-100">{rounds[currentRoundIndex].itemB.title}</h3>
+                  <h3 className="text-xl font-bold text-slate-100">{rounds[currentRoundIndex].itemB.title}</h3>
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-slate-800/80 w-full text-center">
@@ -332,7 +328,7 @@ export default function App() {
       </main>
 
       {/* FOOTER */}
-      <footer className="text-center pt-4 border-t border-slate-800 text-xs text-slate-500">
+      <footer className="text-center pt-6 border-t border-slate-800 text-xs text-slate-500">
         VALUER • Compare items and test your pricing intuition.
       </footer>
     </div>
