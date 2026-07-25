@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap, Sparkles, HelpCircle, User, BarChart2 } from 'lucide-react';
+import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap, Sparkles, HelpCircle, User, BarChart2, Percent } from 'lucide-react';
 import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
@@ -65,7 +65,10 @@ export default function App() {
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [userStatsHistory, setUserStatsHistory] = useState<any>(null);
+  
+  // Separate stats for Daily and Endless in profile
+  const [dailyStats, setDailyStats] = useState<any>(null);
+  const [endlessStats, setEndlessStats] = useState<any>(null);
 
   const [leaderboardType, setLeaderboardType] = useState<'daily' | 'endless'>('daily');
   const [countryLeaders, setCountryLeaders] = useState<CountryStats[]>([]);
@@ -79,7 +82,6 @@ export default function App() {
     const fetchQuestions = async () => {
       const { data, error } = await supabase.from('questions').select('*');
       if (!error && data && data.length > 0) {
-        // Map database structure if needed, or assume matching structure
         const formatted = data.map((q: any) => ({
           id: q.id,
           itemA: { name: q.item_a_name, location: q.item_a_location, priceUSD: Number(q.item_a_price) },
@@ -104,7 +106,7 @@ export default function App() {
       .catch(() => console.log('IP detection failed, defaulting to US'));
   }, []);
 
-  // Check Auth & Played Status for the selected mode
+  // Check Auth & Played Status and fetch user stats for both modes
   useEffect(() => {
     const checkUserAndPlayStatus = async (currentUser: any) => {
       setUser(currentUser);
@@ -113,28 +115,40 @@ export default function App() {
 
       if (localStorage.getItem(storageKey) === 'true') {
         setGameState('already_played');
-        return;
+      } else {
+        setGameState('playing');
       }
 
       if (currentUser) {
-        const tableName = gameMode === 'daily' ? 'stats' : 'stats_endless';
-        const { data: stats, error } = await supabase
-          .from(tableName)
+        // Fetch Daily stats
+        const { data: dStats } = await supabase
+          .from('stats')
           .select('*')
           .eq('user_id', currentUser.id)
           .maybeSingle();
+        if (dStats) setDailyStats(dStats);
 
-        if (!error && stats) {
-          setUserStatsHistory(stats);
-          if (stats.last_played_date === today) {
-            localStorage.setItem(storageKey, 'true');
-            setGameState('already_played');
-            return;
-          }
+        // Fetch Endless stats
+        const { data: eStats } = await supabase
+          .from('stats_endless')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .maybeSingle();
+        if (eStats) setEndlessStats(eStats);
+
+        // Check if already played today for current mode via DB
+        const tableName = gameMode === 'daily' ? 'stats' : 'stats_endless';
+        const { data: currentModeStats } = await supabase
+          .from(tableName)
+          .select('last_played_date')
+          .eq('user_id', currentUser.id)
+          .maybeSingle();
+
+        if (currentModeStats && currentModeStats.last_played_date === today) {
+          localStorage.setItem(storageKey, 'true');
+          setGameState('already_played');
         }
       }
-
-      setGameState('playing');
     };
 
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -252,13 +266,14 @@ export default function App() {
             }
 
             if (!error) {
-              // Refresh local user stats history
-              const { data: updatedStats } = await supabase
-                .from(tableName)
-                .select('*')
-                .eq('user_id', user.id)
-                .maybeSingle();
-              if (updatedStats) setUserStatsHistory(updatedStats);
+              // Refresh user stats state
+              if (gameMode === 'daily') {
+                const { data } = await supabase.from('stats').select('*').eq('user_id', user.id).maybeSingle();
+                if (data) setDailyStats(data);
+              } else {
+                const { data } = await supabase.from('stats_endless').select('*').eq('user_id', user.id).maybeSingle();
+                if (data) setEndlessStats(data);
+              }
             }
           } catch (err) {
             console.error('Error saving score:', err);
@@ -626,25 +641,40 @@ export default function App() {
               </div>
             </div>
 
-            <div className="space-y-3">
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
-                <div className="flex items-center gap-2.5 text-slate-300">
-                  <BarChart2 className="w-5 h-5 text-emerald-400" />
-                  <span className="text-sm font-semibold">High Score</span>
+            <div className="space-y-4">
+              {/* Daily Mode Stats */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                    <Percent className="w-4 h-4" />
+                    <span>Daily Mode (5 Rounds)</span>
+                  </div>
+                  <span className="text-xs text-slate-400">{dailyStats?.total_games || 0} games played</span>
                 </div>
-                <span className="text-lg font-black text-emerald-400">
-                  {userStatsHistory?.high_score || 0} pts
-                </span>
+                <div className="flex justify-between items-center bg-slate-900 p-3 rounded-xl border border-slate-800/60">
+                  <span className="text-xs text-slate-300 font-medium">Best Accuracy</span>
+                  <span className="text-base font-black text-emerald-400">
+                    {dailyStats ? Math.round(((dailyStats.high_score || 0) / questions.length) * 100) : 0}% 
+                    <span className="text-xs text-slate-400 font-normal ml-1">({dailyStats?.high_score || 0}/{questions.length})</span>
+                  </span>
+                </div>
               </div>
 
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
-                <div className="flex items-center gap-2.5 text-slate-300">
-                  <Trophy className="w-5 h-5 text-amber-400" />
-                  <span className="text-sm font-semibold">Total Games Played</span>
+              {/* Endless Mode Stats */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                    <Trophy className="w-4 h-4" />
+                    <span>Endless Mode</span>
+                  </div>
+                  <span className="text-xs text-slate-400">{endlessStats?.total_games || 0} games played</span>
                 </div>
-                <span className="text-lg font-black text-amber-400">
-                  {userStatsHistory?.total_games || 0}
-                </span>
+                <div className="flex justify-between items-center bg-slate-900 p-3 rounded-xl border border-slate-800/60">
+                  <span className="text-xs text-slate-300 font-medium">Best Score</span>
+                  <span className="text-base font-black text-amber-400">
+                    {endlessStats?.high_score || 0} pts
+                  </span>
+                </div>
               </div>
             </div>
 
