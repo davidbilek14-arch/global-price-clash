@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap, Sparkles, HelpCircle } from 'lucide-react';
+import { Trophy, CheckCircle2, XCircle, Share2, LogOut, X, Globe, CalendarCheck2, Coffee, Zap, Sparkles, HelpCircle, User, BarChart2 } from 'lucide-react';
 import AuthModal from './AuthModal';
 
 const EXCHANGE_RATES = {
@@ -10,8 +10,8 @@ const EXCHANGE_RATES = {
   GBP: { rate: 0.79, symbol: '£', name: 'GBP (£)' },
 };
 
-// Placeholder question pool (will be fetched from database soon)
-const ALL_QUESTIONS = [
+// Fallback questions if database is empty
+const FALLBACK_QUESTIONS = [
   {
     id: 1,
     itemA: { name: 'Starbucks Caffe Latte (Large)', location: '🇨🇭 Zurich, Switzerland', priceUSD: 8.50 },
@@ -53,6 +53,7 @@ interface CountryStats {
 export default function App() {
   const [gameMode, setGameMode] = useState<'daily' | 'endless'>('daily');
   const [currency, setCurrency] = useState('USD');
+  const [questions, setQuestions] = useState(FALLBACK_QUESTIONS);
   const [currentRound, setCurrentRound] = useState(0);
   const [score, setScore] = useState(0);
   const [gameState, setGameState] = useState<'playing' | 'revealed' | 'ended' | 'already_played'>('playing');
@@ -63,14 +64,33 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [userStatsHistory, setUserStatsHistory] = useState<any>(null);
+
   const [leaderboardType, setLeaderboardType] = useState<'daily' | 'endless'>('daily');
   const [countryLeaders, setCountryLeaders] = useState<CountryStats[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [shareNotification, setShareNotification] = useState(false);
 
-  const [endlessQuestions, setEndlessQuestions] = useState(ALL_QUESTIONS);
-
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
+
+  // Fetch questions from Supabase table 'questions' if available
+  useEffect(() => {
+    const fetchQuestions = async () => {
+      const { data, error } = await supabase.from('questions').select('*');
+      if (!error && data && data.length > 0) {
+        // Map database structure if needed, or assume matching structure
+        const formatted = data.map((q: any) => ({
+          id: q.id,
+          itemA: { name: q.item_a_name, location: q.item_a_location, priceUSD: Number(q.item_a_price) },
+          itemB: { name: q.item_b_name, location: q.item_b_location, priceUSD: Number(q.item_b_price) },
+          funFact: q.fun_fact
+        }));
+        setQuestions(formatted);
+      }
+    };
+    fetchQuestions();
+  }, []);
 
   // Auto-detect country via ipwho.is
   useEffect(() => {
@@ -84,32 +104,33 @@ export default function App() {
       .catch(() => console.log('IP detection failed, defaulting to US'));
   }, []);
 
-  // Check Auth & Played Status for the selected mode (database + localStorage fallback)
+  // Check Auth & Played Status for the selected mode
   useEffect(() => {
     const checkUserAndPlayStatus = async (currentUser: any) => {
       setUser(currentUser);
       const today = getTodayDateString();
       const storageKey = `valuer_played_${gameMode}_${today}`;
 
-      // 1. Check localStorage first
       if (localStorage.getItem(storageKey) === 'true') {
         setGameState('already_played');
         return;
       }
 
-      // 2. If logged in, check Supabase database as secondary validation
       if (currentUser) {
         const tableName = gameMode === 'daily' ? 'stats' : 'stats_endless';
         const { data: stats, error } = await supabase
           .from(tableName)
-          .select('last_played_date')
+          .select('*')
           .eq('user_id', currentUser.id)
           .maybeSingle();
 
-        if (!error && stats && stats.last_played_date === today) {
-          localStorage.setItem(storageKey, 'true');
-          setGameState('already_played');
-          return;
+        if (!error && stats) {
+          setUserStatsHistory(stats);
+          if (stats.last_played_date === today) {
+            localStorage.setItem(storageKey, 'true');
+            setGameState('already_played');
+            return;
+          }
         }
       }
 
@@ -132,7 +153,7 @@ export default function App() {
     setScore(0);
     setCurrentRound(0);
     if (mode === 'endless') {
-      setEndlessQuestions([...ALL_QUESTIONS].sort(() => Math.random() - 0.5));
+      setQuestions([...questions].sort(() => Math.random() - 0.5));
     }
   };
 
@@ -230,7 +251,15 @@ export default function App() {
               error = res.error;
             }
 
-            if (error) console.error('Supabase save error:', error);
+            if (!error) {
+              // Refresh local user stats history
+              const { data: updatedStats } = await supabase
+                .from(tableName)
+                .select('*')
+                .eq('user_id', user.id)
+                .maybeSingle();
+              if (updatedStats) setUserStatsHistory(updatedStats);
+            }
           } catch (err) {
             console.error('Error saving score:', err);
           }
@@ -247,10 +276,8 @@ export default function App() {
     return currency === 'CZK' ? `${converted} ${symbol}` : `${symbol}${converted}`;
   };
 
-  const currentQuestionsList = gameMode === 'daily' ? ALL_QUESTIONS : endlessQuestions;
-
   const handleGuess = (isHigher: boolean) => {
-    const q = currentQuestionsList[currentRound % currentQuestionsList.length];
+    const q = questions[currentRound % questions.length];
     const isCorrect = isHigher ? q.itemB.priceUSD >= q.itemA.priceUSD : q.itemB.priceUSD <= q.itemA.priceUSD;
 
     setLastAnswerCorrect(isCorrect);
@@ -268,7 +295,7 @@ export default function App() {
 
   const nextQuestion = () => {
     if (gameMode === 'daily') {
-      if (currentRound + 1 < ALL_QUESTIONS.length) {
+      if (currentRound + 1 < questions.length) {
         setCurrentRound(currentRound + 1);
         setGameState('playing');
       } else {
@@ -282,8 +309,8 @@ export default function App() {
 
   const handleShare = () => {
     const text = gameMode === 'daily' 
-      ? `Valuer Daily - Score: ${score}/${ALL_QUESTIONS.length} 🌍` 
-      : `Valuer Endless - I achieved a score of ${score} points! 🚀`;
+      ? `🌍 Valuer Daily\nScore: ${score}/${questions.length}\nCan you beat my price guessing skills? 🎯` 
+      : `🚀 Valuer Endless\nI scored ${score} points!\nTest your price intuition today! 💡`;
       
     navigator.clipboard.writeText(text);
     setShareNotification(true);
@@ -304,7 +331,7 @@ export default function App() {
     return countries[code] || `🌐 ${code}`;
   };
 
-  const q = currentQuestionsList[currentRound % currentQuestionsList.length];
+  const q = questions[currentRound % questions.length];
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 lg:p-8 relative overflow-hidden font-sans">
@@ -361,9 +388,14 @@ export default function App() {
 
             {user ? (
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400 font-medium hidden sm:inline">
-                  {user.email?.split('@')[0]}
-                </span>
+                <button
+                  onClick={() => setIsProfileOpen(true)}
+                  className="flex items-center gap-1 bg-slate-900 border border-slate-800 hover:border-emerald-500/50 px-2.5 py-2 rounded-lg text-xs text-slate-300 font-semibold transition cursor-pointer"
+                  title="Player Profile"
+                >
+                  <User className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden sm:inline">{user.email?.split('@')[0]}</span>
+                </button>
                 <button 
                   onClick={() => supabase.auth.signOut()} 
                   title="Sign out"
@@ -397,7 +429,7 @@ export default function App() {
               </p>
             </div>
 
-            {/* Buy Me a Coffee Callout even when already played */}
+            {/* Buy Me a Coffee Callout */}
             <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 border border-amber-500/40 rounded-2xl p-4 w-full text-left flex flex-col gap-2.5 shadow-lg">
               <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
                 <Sparkles className="w-4 h-4" />
@@ -435,7 +467,7 @@ export default function App() {
           /* Main Game Screen */
           <main className="flex-1 flex flex-col justify-center gap-6 my-6 lg:my-10">
             <div className="flex justify-between items-center max-w-xl mx-auto w-full text-xs lg:text-sm text-slate-400 font-semibold tracking-wider">
-              <span>{gameMode === 'daily' ? `ROUND ${currentRound + 1} OF ${ALL_QUESTIONS.length}` : `ENDLESS MODE`}</span>
+              <span>{gameMode === 'daily' ? `ROUND ${currentRound + 1} OF ${questions.length}` : `ENDLESS MODE`}</span>
               <span className="text-emerald-400 font-bold">SCORE: {score}</span>
             </div>
 
@@ -513,7 +545,7 @@ export default function App() {
               <h2 className="text-3xl lg:text-4xl font-black">{gameMode === 'daily' ? 'Daily Complete!' : 'Game Over!'}</h2>
               <p className="text-slate-400 mt-2 text-sm lg:text-base">
                 {gameMode === 'daily' 
-                  ? `You got ${score} out of ${ALL_QUESTIONS.length} correct` 
+                  ? `You got ${score} out of ${questions.length} correct` 
                   : `You achieved a final score of ${score} points!`}
               </p>
             </div>
@@ -572,6 +604,59 @@ export default function App() {
           </a>
         </footer>
       </div>
+
+      {/* Modal - Player Profile & Stats */}
+      {isProfileOpen && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
+            <button 
+              onClick={() => setIsProfileOpen(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-12 h-12 bg-emerald-950 border border-emerald-700/50 rounded-2xl flex items-center justify-center text-emerald-400 font-bold text-lg">
+                {user?.email?.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <h2 className="text-lg font-black text-white">{user?.email}</h2>
+                <p className="text-xs text-slate-400">Country: {getCountryDisplay(userCountry)}</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2.5 text-slate-300">
+                  <BarChart2 className="w-5 h-5 text-emerald-400" />
+                  <span className="text-sm font-semibold">High Score</span>
+                </div>
+                <span className="text-lg font-black text-emerald-400">
+                  {userStatsHistory?.high_score || 0} pts
+                </span>
+              </div>
+
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2.5 text-slate-300">
+                  <Trophy className="w-5 h-5 text-amber-400" />
+                  <span className="text-sm font-semibold">Total Games Played</span>
+                </div>
+                <span className="text-lg font-black text-amber-400">
+                  {userStatsHistory?.total_games || 0}
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setIsProfileOpen(false)}
+              className="mt-6 w-full bg-slate-800 hover:bg-slate-700 font-bold py-3 rounded-xl text-sm transition cursor-pointer border border-slate-700"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modal - How to Play */}
       {isHelpOpen && (
@@ -658,7 +743,7 @@ export default function App() {
               <div className="text-center py-8 text-slate-400">Loading rankings...</div>
             ) : countryLeaders.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
-                No data recorded for this mode yet (or table missing).
+                No data recorded for this mode yet.
               </div>
             ) : (
               <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
