@@ -83,11 +83,20 @@ export default function App() {
       .catch(() => console.log('IP detection failed, defaulting to US'));
   }, []);
 
-  // Check Auth & Played Status for the selected mode
+  // Check Auth & Played Status for the selected mode (database + localStorage fallback)
   useEffect(() => {
     const checkUserAndPlayStatus = async (currentUser: any) => {
       setUser(currentUser);
+      const today = getTodayDateString();
+      const storageKey = `valuer_played_${gameMode}_${today}`;
 
+      // 1. Check localStorage first (works for both logged-in and guest users immediately)
+      if (localStorage.getItem(storageKey) === 'true') {
+        setGameState('already_played');
+        return;
+      }
+
+      // 2. If logged in, check Supabase database as secondary validation
       if (currentUser) {
         const tableName = gameMode === 'daily' ? 'stats' : 'stats_endless';
         const { data: stats, error } = await supabase
@@ -96,14 +105,13 @@ export default function App() {
           .eq('user_id', currentUser.id)
           .maybeSingle();
 
-        if (!error && stats) {
-          const today = getTodayDateString();
-          if (stats.last_played_date === today) {
-            setGameState('already_played');
-            return;
-          }
+        if (!error && stats && stats.last_played_date === today) {
+          localStorage.setItem(storageKey, 'true'); // sync localStorage
+          setGameState('already_played');
+          return;
         }
       }
+
       setGameState('playing');
     };
 
@@ -174,56 +182,61 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (gameState === 'ended' && user) {
-      const saveStats = async () => {
-        try {
-          const today = getTodayDateString();
-          const tableName = gameMode === 'daily' ? 'stats' : 'stats_endless';
+    if (gameState === 'ended') {
+      const today = getTodayDateString();
+      const storageKey = `valuer_played_${gameMode}_${today}`;
+      localStorage.setItem(storageKey, 'true'); // Lock it down in localStorage immediately for guests & users
 
-          const { data: currentStats } = await supabase
-            .from(tableName)
-            .select('high_score, total_games')
-            .eq('user_id', user.id)
-            .maybeSingle();
+      if (user) {
+        const saveStats = async () => {
+          try {
+            const tableName = gameMode === 'daily' ? 'stats' : 'stats_endless';
 
-          const newHighScore = Math.max(currentStats?.high_score || 0, score);
-          const newTotalGames = (currentStats?.total_games || 0) + 1;
-
-          let error;
-          if (currentStats) {
-            const res = await supabase
+            const { data: currentStats } = await supabase
               .from(tableName)
-              .update({
-                high_score: newHighScore,
-                total_games: newTotalGames,
-                country_code: userCountry,
-                last_played_date: today,
-                updated_at: new Date().toISOString()
-              })
-              .eq('user_id', user.id);
-            error = res.error;
-          } else {
-            const res = await supabase
-              .from(tableName)
-              .insert({
-                user_id: user.id,
-                email: user.email,
-                high_score: newHighScore,
-                total_games: newTotalGames,
-                country_code: userCountry,
-                last_played_date: today,
-                updated_at: new Date().toISOString()
-              });
-            error = res.error;
+              .select('high_score, total_games')
+              .eq('user_id', user.id)
+              .maybeSingle();
+
+            const newHighScore = Math.max(currentStats?.high_score || 0, score);
+            const newTotalGames = (currentStats?.total_games || 0) + 1;
+
+            let error;
+            if (currentStats) {
+              const res = await supabase
+                .from(tableName)
+                .update({
+                  high_score: newHighScore,
+                  total_games: newTotalGames,
+                  country_code: userCountry,
+                  last_played_date: today,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('user_id', user.id);
+              error = res.error;
+            } else {
+              const res = await supabase
+                .from(tableName)
+                .insert({
+                  user_id: user.id,
+                  email: user.email,
+                  high_score: newHighScore,
+                  total_games: newTotalGames,
+                  country_code: userCountry,
+                  last_played_date: today,
+                  updated_at: new Date().toISOString()
+                });
+              error = res.error;
+            }
+
+            if (error) console.error('Supabase save error:', error);
+          } catch (err) {
+            console.error('Error saving score:', err);
           }
+        };
 
-          if (error) console.error('Supabase save error:', error);
-        } catch (err) {
-          console.error('Error saving score:', err);
-        }
-      };
-
-      saveStats();
+        saveStats();
+      }
     }
   }, [gameState, user, score, userCountry, gameMode]);
 
